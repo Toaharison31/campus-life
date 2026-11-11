@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   CalendarDays,
   Check,
-  Circle,
+  ChevronDown,
   ListFilter,
   Pencil,
   Plus,
@@ -12,41 +13,200 @@ import {
 import { useTranslation } from "react-i18next";
 import { useCampus } from "../context/CampusContext";
 import { createId } from "../services/storage";
-import { formatLongDate, getLocalDateString } from "../services/dates";
+import {
+  formatLongDate,
+  getLocalDateString,
+  isValidDateString,
+} from "../services/dates";
+import { getTaskStats } from "../services/studentData";
 import Modal from "../components/Modal";
 import ConfirmDialog from "../components/ConfirmDialog";
+import DatePicker from "../components/DatePicker";
+import FormSelect from "../components/FormSelect";
 import EmptyState from "../components/EmptyState";
+import Badge from "../components/Badge";
+import PageHeader from "../components/PageHeader";
+import {
+  CourseChip,
+  PriorityBadge,
+  TaskStatusBadge,
+} from "../components/StatusBadges";
 
 const blank = {
   title: "",
   description: "",
   dueDate: "",
   priority: "Medium",
+  category: "Academic",
+  courseId: "",
   status: "Pending",
 };
+const categories = ["Academic", "Personal", "Project", "Exam", "Other"];
+
+function FilterSelect({ id, label, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [placement, setPlacement] = useState("bottom");
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const optionRefs = useRef([]);
+  const selectedIndex = Math.max(
+    0,
+    options.findIndex((option) => option.value === value),
+  );
+
+  useEffect(() => {
+    if (!open) return undefined;
+    optionRefs.current[activeIndex]?.focus();
+    const closeOnOutsideClick = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () =>
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [activeIndex, open]);
+
+  const openMenu = (index = selectedIndex) => {
+    const triggerBounds = triggerRef.current?.getBoundingClientRect();
+    if (triggerBounds) {
+      const mobile = window.matchMedia("(max-width: 800px)").matches;
+      const bottomInset = mobile ? 80 : 16;
+      const menuHeight = Math.min(options.length * 40 + 10, window.innerHeight * 0.45);
+      const spaceBelow =
+        window.innerHeight - triggerBounds.bottom - bottomInset;
+      setPlacement(
+        spaceBelow < menuHeight && triggerBounds.top > spaceBelow
+          ? "top"
+          : "bottom",
+      );
+    }
+    setActiveIndex(index);
+    setOpen(true);
+  };
+  const closeMenu = (restoreFocus = false) => {
+    setOpen(false);
+    if (restoreFocus) triggerRef.current?.focus();
+  };
+  const handleTriggerKeyDown = (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      openMenu(selectedIndex);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (open) closeMenu();
+      else openMenu(selectedIndex);
+    } else if (event.key === "Escape" && open) {
+      event.preventDefault();
+      closeMenu(true);
+    }
+  };
+  const handleOptionKeyDown = (event, index) => {
+    let nextIndex = index;
+    if (event.key === "ArrowDown") nextIndex = (index + 1) % options.length;
+    else if (event.key === "ArrowUp")
+      nextIndex = (index - 1 + options.length) % options.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = options.length - 1;
+    else if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu(true);
+      return;
+    } else if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      onChange(options[index].value);
+      closeMenu(true);
+      return;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    setActiveIndex(nextIndex);
+  };
+  const selectedOption = options[selectedIndex];
+
+  return (
+    <div className="filter-select" ref={rootRef}>
+      <button
+        ref={triggerRef}
+        id={id}
+        type="button"
+        className="filter-select-trigger"
+        role="combobox"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-options`}
+        onClick={() => (open ? closeMenu() : openMenu())}
+        onKeyDown={handleTriggerKeyDown}
+      >
+        <span>{selectedOption?.label}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          id={`${id}-options`}
+          className="filter-select-options"
+          data-placement={placement}
+          role="listbox"
+          aria-label={label}
+        >
+          {options.map((option, index) => (
+            <button
+              ref={(node) => {
+                optionRefs.current[index] = node;
+              }}
+              type="button"
+              role="option"
+              aria-selected={value === option.value}
+              className="filter-select-option"
+              id={`${id}-option-${index}`}
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                closeMenu(true);
+              }}
+              onKeyDown={(event) => handleOptionKeyDown(event, index)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Tasks() {
   const { t, i18n } = useTranslation();
-  const { tasks, setTasks } = useCampus();
+  const { tasks, setTasks, showToast, courses } = useCampus();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("All");
+  const routeStatus = searchParams.get("status");
+  const status = ["Pending", "Completed", "Overdue"].includes(routeStatus)
+    ? routeStatus
+    : "All";
   const [priority, setPriority] = useState("All");
+  const [category, setCategory] = useState("All");
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [form, setForm] = useState(blank);
   const [error, setError] = useState("");
   const today = getLocalDateString();
-  const filtered = useMemo(
-    () =>
-      tasks.filter(
-        (task) =>
-          (status === "All" || task.status === status) &&
-          (priority === "All" || task.priority === priority) &&
-          `${task.title} ${task.description}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
-      ),
-    [tasks, status, priority, query],
+  const filtered = tasks.filter(
+    (task) =>
+      (status === "All" ||
+        (status === "Overdue"
+          ? task.status !== "Completed" && task.dueDate < today
+          : (task.status === "Completed" ? "Completed" : "Pending") === status)) &&
+      (priority === "All" || task.priority === priority) &&
+      (category === "All" || (task.category || "Academic") === category) &&
+      `${task.title} ${task.description || ""} ${task.category || ""} ${
+        courses.find((course) => course.id === task.courseId)?.name || ""
+      }`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
   );
+  const stats = getTaskStats(tasks, today);
   const openForm = (task = null) => {
     setEditing(task || false);
     setForm(task ? { ...task } : blank);
@@ -54,7 +214,7 @@ export default function Tasks() {
   };
   const save = (event) => {
     event.preventDefault();
-    if (!form.title.trim() || !form.dueDate) {
+    if (!form.title.trim() || !isValidDateString(form.dueDate)) {
       setError("tasks.validation");
       return;
     }
@@ -63,7 +223,7 @@ export default function Tasks() {
       title: form.title.trim(),
       description: form.description.trim(),
     };
-    setTasks((items) =>
+    const persisted = setTasks((items) =>
       editing
         ? items.map((item) =>
             item.id === editing.id ? { ...item, ...saved } : item,
@@ -71,63 +231,67 @@ export default function Tasks() {
         : [{ ...saved, id: createId("task"), createdAt: today }, ...items],
     );
     setEditing(null);
+    showToast(
+      t(persisted ? "common.saved" : "common.storageError"),
+      persisted ? "success" : "error",
+    );
   };
   const remove = () => {
-    setTasks((items) => items.filter((item) => item.id !== deleting.id));
+    const persisted = setTasks((items) =>
+      items.filter((item) => item.id !== deleting.id),
+    );
     setDeleting(null);
+    showToast(
+      t(persisted ? "common.deleted" : "common.storageError"),
+      persisted ? "success" : "error",
+    );
   };
-  const toggle = (id) =>
-    setTasks((items) =>
+  const toggle = (id) => {
+    const persisted = setTasks((items) =>
       items.map((item) =>
         item.id === id
           ? {
               ...item,
               status: item.status === "Completed" ? "Pending" : "Completed",
+              completedAt:
+                item.status === "Completed" ? undefined : getLocalDateString(),
             }
           : item,
       ),
     );
+    if (!persisted) showToast(t("common.storageError"), "error");
+  };
   const isEditing = !editing;
   const formatDate = (date) =>
     formatLongDate(date, i18n.resolvedLanguage || "fr");
 
   return (
     <div className="module-page">
-      <div className="page-title-row">
-        <div>
-          <div className="eyebrow">{t("tasks.eyebrow")}</div>
-          <h1>{t("tasks.title")}</h1>
-          <p>{t("tasks.intro")}</p>
-        </div>
-        <button className="button button-primary" onClick={() => openForm()}>
-          <Plus size={17} /> {t("tasks.add")}
-        </button>
-      </div>
+      <PageHeader
+        eyebrow={t("tasks.eyebrow")}
+        title={t("tasks.title")}
+        subtitle={t("tasks.intro")}
+        action={
+          <button className="button button-primary" onClick={() => openForm()}>
+            <Plus size={17} /> {t("tasks.add")}
+          </button>
+        }
+      />
       <div className="module-summary">
         <div>
-          <strong>{tasks.length}</strong>
+          <strong>{stats.total}</strong>
           <span>{t("tasks.total")}</span>
         </div>
         <div>
-          <strong>
-            {tasks.filter((item) => item.status === "Pending").length}
-          </strong>
+          <strong>{stats.pending}</strong>
           <span>{t("tasks.pending")}</span>
         </div>
         <div>
-          <strong>
-            {tasks.filter((item) => item.status === "Completed").length}
-          </strong>
+          <strong>{stats.completed}</strong>
           <span>{t("tasks.completed")}</span>
         </div>
         <div className="overdue-count">
-          <strong>
-            {
-              tasks.filter(
-                (item) => item.status === "Pending" && item.dueDate < today,
-              ).length
-            }
-          </strong>
+          <strong>{stats.overdue}</strong>
           <span>{t("tasks.overdue")}</span>
         </div>
       </div>
@@ -144,25 +308,46 @@ export default function Tasks() {
           </div>
           <div className="filter-controls">
             <ListFilter size={17} />
-            <select
+            <FilterSelect
+              id="tasks-filter-status"
+              label={t("tasks.filterStatus")}
               value={status}
-              onChange={(event) => setStatus(event.target.value)}
-              aria-label={t("tasks.filterStatus")}
-            >
-              <option value="All">{t("tasks.allStatus")}</option>
-              <option value="Pending">{t("status.Pending")}</option>
-              <option value="Completed">{t("status.Completed")}</option>
-            </select>
-            <select
+              options={[
+                { value: "All", label: t("tasks.allStatus") },
+                { value: "Pending", label: t("status.Pending") },
+                { value: "Completed", label: t("status.Completed") },
+                { value: "Overdue", label: t("tasks.overdue") },
+              ]}
+              onChange={(nextStatus) => {
+                if (nextStatus === "All") setSearchParams({});
+                else setSearchParams({ status: nextStatus });
+              }}
+            />
+            <FilterSelect
+              id="tasks-filter-priority"
+              label={t("tasks.filterPriority")}
               value={priority}
-              onChange={(event) => setPriority(event.target.value)}
-              aria-label={t("tasks.filterPriority")}
-            >
-              <option value="All">{t("tasks.allPriorities")}</option>
-              <option value="High">{t("priority.High")}</option>
-              <option value="Medium">{t("priority.Medium")}</option>
-              <option value="Low">{t("priority.Low")}</option>
-            </select>
+              options={[
+                { value: "All", label: t("tasks.allPriorities") },
+                { value: "High", label: t("priority.High") },
+                { value: "Medium", label: t("priority.Medium") },
+                { value: "Low", label: t("priority.Low") },
+              ]}
+              onChange={setPriority}
+            />
+            <FilterSelect
+              id="tasks-filter-category"
+              label={t("tasks.filterCategory")}
+              value={category}
+              options={[
+                { value: "All", label: t("tasks.allCategories") },
+                ...categories.map((value) => ({
+                  value,
+                  label: t(`category.${value}`),
+                })),
+              ]}
+              onChange={setCategory}
+            />
           </div>
         </div>
         {filtered.length ? (
@@ -175,15 +360,25 @@ export default function Tasks() {
               <span>{t("tasks.actions")}</span>
             </div>
             {filtered.map((task) => {
-              const overdue = task.status === "Pending" && task.dueDate < today;
+              const taskStatus =
+                task.status === "Completed" ? "Completed" : "Pending";
+              const taskPriority = ["Low", "Medium", "High"].includes(
+                task.priority,
+              )
+                ? task.priority
+                : "Medium";
+              const overdue = taskStatus === "Pending" && task.dueDate < today;
+              const linkedCourse = courses.find(
+                (course) => course.id === task.courseId,
+              );
               return (
                 <div className="table-row task-columns" key={task.id}>
-                  <div className="table-task-cell">
+                  <div className="table-task-cell task-info-cell">
                     <button
-                      className={`task-check ${task.status === "Completed" ? "checked" : ""}`}
+                      className={`task-check ${taskStatus === "Completed" ? "checked" : ""}`}
                       onClick={() => toggle(task.id)}
                       aria-label={t(
-                        task.status === "Completed"
+                        taskStatus === "Completed"
                           ? "tasks.markPending"
                           : "tasks.markCompleted",
                         { title: task.title },
@@ -194,44 +389,56 @@ export default function Tasks() {
                     <div>
                       <strong
                         className={
-                          task.status === "Completed" ? "text-done" : ""
+                          taskStatus === "Completed" ? "text-done" : ""
                         }
                       >
                         {task.title}
                       </strong>
-                      <span>
-                        {task.description || t("tasks.descriptionEmpty")}
-                      </span>
+                      {task.description && <span>{task.description}</span>}
+                      <div className="task-chip-row">
+                        <Badge tone="neutral" className="task-category">
+                          {t(`category.${task.category || "Academic"}`)}
+                        </Badge>
+                        {linkedCourse && <CourseChip course={linkedCourse} />}
+                      </div>
                     </div>
                   </div>
-                  <div className={`due-cell ${overdue ? "overdue" : ""}`}>
+                  <div
+                    className={`due-cell task-due-cell ${overdue ? "overdue" : ""}`}
+                  >
                     <CalendarDays size={15} />
+                    <span className="task-mobile-label">
+                      {t("tasks.dueDate")}
+                    </span>
                     {overdue && (
                       <span className="sr-only">{t("tasks.overdue")}: </span>
                     )}
                     {formatDate(task.dueDate)}
                     {overdue && <small>{t("tasks.overdue")}</small>}
                   </div>
-                  <div>
-                    <span
-                      className={`priority-dot priority-${task.priority.toLowerCase()}`}
-                    >
-                      {t(`priority.${task.priority}`)}
+                  <div className="task-priority-cell">
+                    <span className="task-mobile-label">
+                      {t("tasks.priority")}
                     </span>
+                    <PriorityBadge
+                      level={taskPriority}
+                      label={t(`priority.${taskPriority}`)}
+                    />
                   </div>
-                  <div>
-                    <span
-                      className={`status-pill status-${task.status.toLowerCase()}`}
-                    >
-                      {task.status === "Completed" ? (
-                        <Check size={12} />
-                      ) : (
-                        <Circle size={8} />
+                  <div className="task-status-cell">
+                    <span className="task-mobile-label">
+                      {t("tasks.status")}
+                    </span>
+                    <TaskStatusBadge
+                      status={overdue ? "Overdue" : taskStatus}
+                      label={t(
+                        overdue
+                          ? "tasks.overdue"
+                          : `status.${taskStatus}`,
                       )}
-                      {t(`status.${task.status}`)}
-                    </span>
+                    />
                   </div>
-                  <div className="row-actions">
+                  <div className="row-actions task-row-actions">
                     <button
                       className="icon-button"
                       onClick={() => openForm(task)}
@@ -292,31 +499,53 @@ export default function Tasks() {
               />
             </label>
             <div className="form-row">
-              <label>
-                {t("tasks.dueDate")}
-                <input
-                  type="date"
-                  value={form.dueDate}
-                  onChange={(event) =>
-                    setForm({ ...form, dueDate: event.target.value })
-                  }
-                />
-              </label>
-              <label>
-                {t("tasks.priorityLabel")}
-                <select
-                  value={form.priority}
-                  onChange={(event) =>
-                    setForm({ ...form, priority: event.target.value })
-                  }
-                >
-                  <option value="Low">{t("priority.Low")}</option>
-                  <option value="Medium">{t("priority.Medium")}</option>
-                  <option value="High">{t("priority.High")}</option>
-                </select>
-              </label>
+              <FormSelect
+                id="task-course"
+                label={t("tasks.course")}
+                value={form.courseId || ""}
+                onChange={(courseId) => setForm({ ...form, courseId })}
+                options={[
+                  { value: "", label: t("tasks.noCourse") },
+                  ...courses.map((course) => ({
+                    value: course.id,
+                    label: course.name,
+                  })),
+                ]}
+              />
+              <DatePicker
+                id="task-due-date"
+                label={t("tasks.dueDate")}
+                value={form.dueDate}
+                onChange={(dueDate) => setForm({ ...form, dueDate })}
+                language={i18n.resolvedLanguage || "fr"}
+                required
+              />
+              <FormSelect
+                id="task-category"
+                label={t("tasks.category")}
+                value={form.category || "Academic"}
+                onChange={(category) => setForm({ ...form, category })}
+                options={categories.map((value) => ({
+                  value,
+                  label: t(`category.${value}`),
+                }))}
+              />
+              <FormSelect
+                id="task-priority"
+                label={t("tasks.priorityLabel")}
+                value={form.priority}
+                onChange={(priority) => setForm({ ...form, priority })}
+                options={["Low", "Medium", "High"].map((value) => ({
+                  value,
+                  label: t(`priority.${value}`),
+                }))}
+              />
             </div>
-            {error && <p className="form-error">{t(error)}</p>}
+            {error && (
+              <p className="form-error" role="alert">
+                {t(error)}
+              </p>
+            )}
             <div className="form-actions">
               <button
                 type="button"

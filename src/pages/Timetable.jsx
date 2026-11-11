@@ -5,7 +5,11 @@ import { useCampus } from "../context/CampusContext";
 import { createId } from "../services/storage";
 import Modal from "../components/Modal";
 import ConfirmDialog from "../components/ConfirmDialog";
+import FormSelect from "../components/FormSelect";
+import TimePicker from "../components/TimePicker";
 import EmptyState from "../components/EmptyState";
+import PageHeader from "../components/PageHeader";
+import { getCourseColorClass } from "../services/courseColors";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const blank = {
@@ -16,14 +20,22 @@ const blank = {
   classroom: "",
   teacher: "",
 };
+const validTime = (value) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
 
 export default function Timetable() {
   const { t } = useTranslation();
-  const { courses, setCourses } = useCampus();
+  const { courses, setCourses, showToast, now } = useCampus();
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [form, setForm] = useState(blank);
   const [error, setError] = useState("");
+  const [view, setView] = useState("week");
+  const currentDay = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+  }).format(now);
+  const [selectedDay, setSelectedDay] = useState(
+    days.includes(currentDay) ? currentDay : "Monday",
+  );
   const openForm = (course = null) => {
     setEditing(course || false);
     setForm(course ? { ...course } : blank);
@@ -40,6 +52,10 @@ export default function Timetable() {
       !form.teacher.trim()
     ) {
       setError("timetable.required");
+      return;
+    }
+    if (!validTime(form.startTime) || !validTime(form.endTime)) {
+      setError("timetable.invalidTime");
       return;
     }
     if (form.startTime >= form.endTime) {
@@ -63,7 +79,7 @@ export default function Timetable() {
       classroom: form.classroom.trim(),
       teacher: form.teacher.trim(),
     };
-    setCourses((items) =>
+    const persisted = setCourses((items) =>
       editing
         ? items.map((item) =>
             item.id === editing.id ? { ...item, ...saved } : item,
@@ -71,12 +87,23 @@ export default function Timetable() {
         : [...items, { ...saved, id: createId("course") }],
     );
     closeForm();
+    showToast(
+      t(persisted ? "common.saved" : "common.storageError"),
+      persisted ? "success" : "error",
+    );
   };
   const remove = () => {
-    setCourses((items) => items.filter((item) => item.id !== deleting.id));
+    const persisted = setCourses((items) =>
+      items.filter((item) => item.id !== deleting.id),
+    );
     setDeleting(null);
+    showToast(
+      t(persisted ? "common.deleted" : "common.storageError"),
+      persisted ? "success" : "error",
+    );
   };
   const totalHours = courses.reduce((sum, course) => {
+    if (!validTime(course.startTime) || !validTime(course.endTime)) return sum;
     const [startHour, startMinute] = course.startTime.split(":").map(Number);
     const [endHour, endMinute] = course.endTime.split(":").map(Number);
     return sum + (endHour * 60 + endMinute - startHour * 60 - startMinute) / 60;
@@ -84,16 +111,16 @@ export default function Timetable() {
 
   return (
     <div className="module-page">
-      <div className="page-title-row">
-        <div>
-          <div className="eyebrow">{t("timetable.eyebrow")}</div>
-          <h1>{t("timetable.title")}</h1>
-          <p>{t("timetable.intro")}</p>
-        </div>
-        <button className="button button-primary" onClick={() => openForm()}>
-          <Plus size={17} /> {t("timetable.add")}
-        </button>
-      </div>
+      <PageHeader
+        eyebrow={t("timetable.eyebrow")}
+        title={t("timetable.title")}
+        subtitle={t("timetable.intro")}
+        action={
+          <button className="button button-primary" onClick={() => openForm()}>
+            <Plus size={17} /> {t("timetable.add")}
+          </button>
+        }
+      />
       <div className="module-summary timetable-summary">
         <div>
           <strong>{courses.length}</strong>
@@ -121,33 +148,73 @@ export default function Timetable() {
         </div>
       </div>
       <section className="panel timetable-panel">
-        <div className="panel-heading">
+        <div className="panel-heading timetable-heading">
           <div>
             <h2>{t("timetable.weeklySchedule")}</h2>
             <p>{t("timetable.weekRange")}</p>
           </div>
-          <div className="timetable-legend">
-            <span>
-              <i /> {t("timetable.scheduled")}
-            </span>
+          <div className="timetable-controls">
+            {view === "day" && (
+              <select
+                value={selectedDay}
+                onChange={(event) => setSelectedDay(event.target.value)}
+                aria-label={t("timetable.selectDay")}
+              >
+                {days.map((day) => (
+                  <option value={day} key={day}>
+                    {t(`weekday.${day}`)}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div
+              className="view-switch"
+              role="group"
+              aria-label={t("timetable.viewLabel")}
+            >
+              <button
+                type="button"
+                aria-pressed={view === "week"}
+                className={view === "week" ? "selected" : ""}
+                onClick={() => setView("week")}
+              >
+                {t("timetable.weekView")}
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === "day"}
+                className={view === "day" ? "selected" : ""}
+                onClick={() => setView("day")}
+              >
+                {t("timetable.dayView")}
+              </button>
+            </div>
           </div>
         </div>
-        <div className="week-grid">
-          {days.map((day) => {
+        <div className={`week-grid ${view === "day" ? "day-view-grid" : ""}`}>
+          {(view === "day" ? [selectedDay] : days).map((day) => {
             const dayCourses = courses
               .filter((course) => course.day === day)
-              .sort((a, b) => a.startTime.localeCompare(b.startTime));
+              .sort((a, b) =>
+                String(a.startTime || "").localeCompare(
+                  String(b.startTime || ""),
+                ),
+              );
             return (
               <section className="day-column" key={day}>
                 <div className="day-heading">
                   <strong>{t(`weekday.${day}`)}</strong>
                   <span>
+                    <strong>{dayCourses.length}</strong>{" "}
                     {t("timetable.class", { count: dayCourses.length })}
                   </span>
                 </div>
                 {dayCourses.length ? (
                   dayCourses.map((course) => (
-                    <article className="course-card" key={course.id}>
+                    <article
+                      className={`course-card ${getCourseColorClass(course)}`}
+                      key={course.id}
+                    >
                       <div className="course-time">
                         <Clock3 size={13} />
                         {course.startTime}
@@ -159,6 +226,9 @@ export default function Timetable() {
                       <div className="course-actions">
                         <button
                           className="icon-button"
+                          title={t("timetable.edit", {
+                            title: course.name,
+                          })}
                           aria-label={t("timetable.edit", {
                             title: course.name,
                           })}
@@ -168,6 +238,9 @@ export default function Timetable() {
                         </button>
                         <button
                           className="icon-button delete-action"
+                          title={t("timetable.delete", {
+                            title: course.name,
+                          })}
                           aria-label={t("timetable.delete", {
                             title: course.name,
                           })}
@@ -213,42 +286,31 @@ export default function Timetable() {
                 placeholder={t("timetable.coursePlaceholder")}
               />
             </label>
-            <label>
-              {t("timetable.day")}
-              <select
-                value={form.day}
-                onChange={(event) =>
-                  setForm({ ...form, day: event.target.value })
-                }
-              >
-                {days.map((day) => (
-                  <option key={day} value={day}>
-                    {t(`weekday.${day}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="form-row">
-              <label>
-                {t("timetable.startTime")}
-                <input
-                  type="time"
-                  value={form.startTime}
-                  onChange={(event) =>
-                    setForm({ ...form, startTime: event.target.value })
-                  }
-                />
-              </label>
-              <label>
-                {t("timetable.endTime")}
-                <input
-                  type="time"
-                  value={form.endTime}
-                  onChange={(event) =>
-                    setForm({ ...form, endTime: event.target.value })
-                  }
-                />
-              </label>
+            <FormSelect
+              id="course-day"
+              label={t("timetable.day")}
+              value={form.day}
+              onChange={(day) => setForm({ ...form, day })}
+              options={days.map((day) => ({
+                value: day,
+                label: t(`weekday.${day}`),
+              }))}
+            />
+            <div className="form-row course-time-fields">
+              <TimePicker
+                id="course-start-time"
+                label={t("timetable.startTime")}
+                required
+                value={form.startTime}
+                onChange={(startTime) => setForm({ ...form, startTime })}
+              />
+              <TimePicker
+                id="course-end-time"
+                label={t("timetable.endTime")}
+                required
+                value={form.endTime}
+                onChange={(endTime) => setForm({ ...form, endTime })}
+              />
             </div>
             <label>
               {t("timetable.classroom")}
@@ -272,7 +334,11 @@ export default function Timetable() {
                 placeholder={t("timetable.teacherPlaceholder")}
               />
             </label>
-            {error && <p className="form-error">{t(error)}</p>}
+            {error && (
+              <p className="form-error" role="alert">
+                {t(error)}
+              </p>
+            )}
             <div className="form-actions">
               <button
                 type="button"

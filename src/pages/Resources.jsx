@@ -3,7 +3,10 @@ import {
   BookOpen,
   ExternalLink,
   FileText,
+  Heart,
+  LayoutGrid,
   Link as LinkIcon,
+  List,
   Pencil,
   Plus,
   Search,
@@ -13,10 +16,14 @@ import {
 import { useTranslation } from "react-i18next";
 import { useCampus } from "../context/CampusContext";
 import { createId } from "../services/storage";
+import PageHeader from "../components/PageHeader";
 import { getLocalDateString } from "../services/dates";
 import Modal from "../components/Modal";
 import ConfirmDialog from "../components/ConfirmDialog";
+import FormSelect from "../components/FormSelect";
 import EmptyState from "../components/EmptyState";
+import { getCourseColorClass } from "../services/courseColors";
+import { CourseChip } from "../components/StatusBadges";
 
 const categories = [
   "Programming",
@@ -33,6 +40,7 @@ const blank = {
   category: "Programming",
   type: "Article",
   url: "",
+  courseId: "",
 };
 const typeIcon = (type) =>
   type === "Video"
@@ -54,9 +62,12 @@ function isSafeHttpUrl(value) {
 
 export default function Resources() {
   const { t } = useTranslation();
-  const { resources, setResources } = useCampus();
+  const { resources, setResources, showToast, courses } = useCampus();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [sortBy, setSortBy] = useState("recent");
+  const [view, setView] = useState("grid");
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [form, setForm] = useState(blank);
@@ -64,14 +75,23 @@ export default function Resources() {
   const today = getLocalDateString();
   const filtered = useMemo(
     () =>
-      resources.filter(
-        (item) =>
-          (category === "All" || item.category === category) &&
-          `${item.title} ${item.description} ${item.category} ${item.type}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
-      ),
-    [resources, category, query],
+      resources
+        .filter(
+          (item) =>
+            (category === "All" || item.category === category) &&
+            (!favoritesOnly || item.favorite) &&
+            `${item.title} ${item.description} ${item.category} ${item.type} ${
+              courses.find((course) => course.id === item.courseId)?.name || ""
+            }`
+              .toLowerCase()
+              .includes(query.toLowerCase()),
+        )
+        .sort((a, b) =>
+          sortBy === "title"
+            ? a.title.localeCompare(b.title)
+            : (b.createdAt || "").localeCompare(a.createdAt || ""),
+        ),
+    [resources, category, favoritesOnly, query, sortBy, courses],
   );
   const openForm = (item = null) => {
     setEditing(item || false);
@@ -95,7 +115,7 @@ export default function Resources() {
       description: form.description.trim(),
       url: form.url.trim(),
     };
-    setResources((items) =>
+    const persisted = setResources((items) =>
       editing
         ? items.map((item) =>
             item.id === editing.id ? { ...item, ...saved } : item,
@@ -103,24 +123,42 @@ export default function Resources() {
         : [{ ...saved, id: createId("resource"), createdAt: today }, ...items],
     );
     closeForm();
+    showToast(
+      t(persisted ? "common.saved" : "common.storageError"),
+      persisted ? "success" : "error",
+    );
   };
   const remove = () => {
-    setResources((items) => items.filter((item) => item.id !== deleting.id));
+    const persisted = setResources((items) =>
+      items.filter((item) => item.id !== deleting.id),
+    );
     setDeleting(null);
+    showToast(
+      t(persisted ? "common.deleted" : "common.storageError"),
+      persisted ? "success" : "error",
+    );
+  };
+  const toggleFavorite = (resource) => {
+    const persisted = setResources((items) =>
+      items.map((item) =>
+        item.id === resource.id ? { ...item, favorite: !item.favorite } : item,
+      ),
+    );
+    if (!persisted) showToast(t("common.storageError"), "error");
   };
 
   return (
     <div className="module-page">
-      <div className="page-title-row">
-        <div>
-          <div className="eyebrow">{t("resources.eyebrow")}</div>
-          <h1>{t("resources.title")}</h1>
-          <p>{t("resources.intro")}</p>
-        </div>
-        <button className="button button-primary" onClick={() => openForm()}>
-          <Plus size={17} /> {t("resources.add")}
-        </button>
-      </div>
+      <PageHeader
+        eyebrow={t("resources.eyebrow")}
+        title={t("resources.title")}
+        subtitle={t("resources.intro")}
+        action={
+          <button className="button button-primary" onClick={() => openForm()}>
+            <Plus size={17} /> {t("resources.add")}
+          </button>
+        }
+      />
       <section className="panel library-banner">
         <div className="library-icon">
           <BookOpen size={22} />
@@ -143,33 +181,101 @@ export default function Resources() {
             aria-label={t("resources.searchLabel")}
           />
         </div>
-        <select
+        <FormSelect
+          id="resource-filter-category"
+          className="toolbar-form-select"
+          label={t("resources.filterCategory")}
           value={category}
-          onChange={(event) => setCategory(event.target.value)}
-          aria-label={t("resources.filterCategory")}
+          onChange={setCategory}
+          options={[
+            { value: "All", label: t("resources.allCategories") },
+            ...categories.map((value) => ({
+              value,
+              label: t(`category.${value}`),
+            })),
+          ]}
+        />
+        <button
+          className={`favorite-filter ${favoritesOnly ? "selected" : ""}`}
+          type="button"
+          aria-pressed={favoritesOnly}
+          onClick={() => setFavoritesOnly((value) => !value)}
         >
-          <option value="All">{t("resources.allCategories")}</option>
-          {categories.map((value) => (
-            <option key={value} value={value}>
-              {t(`category.${value}`)}
-            </option>
-          ))}
-        </select>
+          <Heart size={15} fill={favoritesOnly ? "currentColor" : "none"} />
+          {t("resources.favorites")}
+        </button>
+        <FormSelect
+          id="resource-sort"
+          className="toolbar-form-select"
+          label={t("resources.sortBy")}
+          value={sortBy}
+          onChange={setSortBy}
+          options={[
+            { value: "recent", label: t("resources.sortRecent") },
+            { value: "title", label: t("resources.sortTitle") },
+          ]}
+        />
+        <div
+          className="view-toggle"
+          role="group"
+          aria-label={t("common.viewMode")}
+        >
+          <button
+            type="button"
+            aria-label={t("common.gridView")}
+            aria-pressed={view === "grid"}
+            className={view === "grid" ? "selected" : ""}
+            onClick={() => setView("grid")}
+          >
+            <LayoutGrid size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label={t("common.listView")}
+            aria-pressed={view === "list"}
+            className={view === "list" ? "selected" : ""}
+            onClick={() => setView("list")}
+          >
+            <List size={16} aria-hidden="true" />
+          </button>
+        </div>
         <span className="results-note">
           {t("resources.resources", { count: filtered.length })}
         </span>
       </section>
       {filtered.length ? (
-        <div className="resource-grid">
+        <div className={`resource-grid ${view === "list" ? "cards-list" : ""}`}>
           {filtered.map((item) => {
             const Icon = typeIcon(item.type);
+            const linkedCourse = courses.find(
+              (course) => course.id === item.courseId,
+            );
             return (
-              <article className="panel resource-card" key={item.id}>
+              <article
+                className={`panel resource-card ${linkedCourse ? getCourseColorClass(linkedCourse) : ""}`}
+                key={item.id}
+              >
                 <div className="resource-card-top">
                   <span className="resource-type-icon">
                     <Icon size={19} />
                   </span>
                   <div className="row-actions">
+                    <button
+                      className={`icon-button favorite-button ${item.favorite ? "is-favorite" : ""}`}
+                      aria-pressed={Boolean(item.favorite)}
+                      aria-label={t(
+                        item.favorite
+                          ? "resources.removeFavorite"
+                          : "resources.addFavorite",
+                        { title: item.title },
+                      )}
+                      onClick={() => toggleFavorite(item)}
+                    >
+                      <Heart
+                        size={15}
+                        fill={item.favorite ? "currentColor" : "none"}
+                      />
+                    </button>
                     <button
                       className="icon-button"
                       aria-label={t("resources.edit", { title: item.title })}
@@ -189,18 +295,27 @@ export default function Resources() {
                 <span className="category-badge category-general">
                   {t(`category.${item.category}`)}
                 </span>
+                {linkedCourse && <CourseChip course={linkedCourse} />}
                 <h2>{item.title}</h2>
                 <p>{item.description}</p>
                 <div className="resource-card-footer">
                   <span>{t(`resourceType.${item.type}`)}</span>
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={t("resources.openLabel", { title: item.title })}
-                  >
-                    {t("resources.open")} <ExternalLink size={14} />
-                  </a>
+                  {isSafeHttpUrl(item.url) ? (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={t("resources.openLabel", {
+                        title: item.title,
+                      })}
+                    >
+                      {t("resources.open")} <ExternalLink size={14} />
+                    </a>
+                  ) : (
+                    <span className="invalid-resource-url">
+                      {t("resources.invalidUrl")}
+                    </span>
+                  )}
                 </div>
               </article>
             );
@@ -265,38 +380,45 @@ export default function Resources() {
               />
             </label>
             <div className="form-row">
-              <label>
-                {t("resources.category")}
-                <select
-                  value={form.category}
-                  onChange={(event) =>
-                    setForm({ ...form, category: event.target.value })
-                  }
-                >
-                  {categories.map((value) => (
-                    <option key={value} value={value}>
-                      {t(`category.${value}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t("resources.type")}
-                <select
-                  value={form.type}
-                  onChange={(event) =>
-                    setForm({ ...form, type: event.target.value })
-                  }
-                >
-                  {types.map((value) => (
-                    <option key={value} value={value}>
-                      {t(`resourceType.${value}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <FormSelect
+                id="resource-course"
+                label={t("resources.course")}
+                value={form.courseId || ""}
+                onChange={(courseId) => setForm({ ...form, courseId })}
+                options={[
+                  { value: "", label: t("resources.noCourse") },
+                  ...courses.map((course) => ({
+                    value: course.id,
+                    label: course.name,
+                  })),
+                ]}
+              />
+              <FormSelect
+                id="resource-category"
+                label={t("resources.category")}
+                value={form.category}
+                onChange={(category) => setForm({ ...form, category })}
+                options={categories.map((value) => ({
+                  value,
+                  label: t(`category.${value}`),
+                }))}
+              />
+              <FormSelect
+                id="resource-type"
+                label={t("resources.type")}
+                value={form.type}
+                onChange={(type) => setForm({ ...form, type })}
+                options={types.map((value) => ({
+                  value,
+                  label: t(`resourceType.${value}`),
+                }))}
+              />
             </div>
-            {error && <p className="form-error">{t(error)}</p>}
+            {error && (
+              <p className="form-error" role="alert">
+                {t(error)}
+              </p>
+            )}
             <div className="form-actions">
               <button
                 type="button"
