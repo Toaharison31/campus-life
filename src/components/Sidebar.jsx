@@ -65,7 +65,7 @@ export default function Sidebar({ open, onNavigate }) {
           </div>
         </div>
         <div className="sidebar-user">
-          <div className="avatar avatar-small">JM</div>
+          <div className="avatar avatar-small">TR</div>
           <div>
             <strong>{t("profile.studentName")}</strong>
             <span>{t("profile.major")}</span>

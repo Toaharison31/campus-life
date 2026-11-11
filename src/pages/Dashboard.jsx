@@ -58,7 +58,7 @@ export default function Dashboard() {
       </section>
       <div className="profile-strip">
         <div className="profile-main">
-          <div className="avatar avatar-large">JM</div>
+          <div className="avatar avatar-large">TR</div>
           <div>
             <span className="profile-caption">{t("dashboard.profile")}</span>
             <strong>{t("profile.studentName")}</strong>

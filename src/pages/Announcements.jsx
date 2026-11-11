@@ -13,7 +13,7 @@ const blank = {
   title: "",
   content: "",
   category: "Academic",
-  author: "Jordan Miller",
+  author: "Toavina Romeo",
 };
 export default function Announcements() {
   const { t, i18n } = useTranslation();

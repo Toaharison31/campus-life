@@ -141,7 +141,7 @@ export default function Header({ onMenuClick }) {
           <Bell size={19} />
           <i />
         </Link>
-        <div className="avatar">JM</div>
+        <div className="avatar">TR</div>
       </div>
     </header>
   );
