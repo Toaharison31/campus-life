@@ -41,6 +41,13 @@ tokens. Theme colors transition over 300ms; list entrances, progress indicators,
 and skeletons use CSS animations. Reduced-motion preferences disable
 non-essential animation.
 
+Use the shared `animate-fade-up` and `animate-pop-in` utilities for lightweight
+entrance motion. Their keyframes are defined in `src/index.css`; repeated list
+entrances are limited to the first four items to avoid unnecessary work on long
+lists. Modal and menu motion uses opacity and transforms, and modal dismissal
+plays a short exit transition. Keep both the operating-system reduced-motion
+preference and the user's accessibility setting respected.
+
 Tasks and courses share priority/status badges. Eight stable course-color tokens
 are used for course indicators and chips across timetable, dashboard, tasks, and
 resources. Use `PriorityBadge`, `TaskStatusBadge`, `UnreadBadge`, `CountBadge`,

@@ -154,6 +154,10 @@ export default {
       backgroundImage: {
         "brand-gradient": "var(--color-gradient)",
       },
+      animation: {
+        "fade-up": "fade-up 240ms ease-out both",
+        "pop-in": "pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both",
+      },
     },
   },
 };

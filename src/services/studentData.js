@@ -151,7 +151,11 @@ export function getNotifications({
     });
 
   announcements
-    .filter((item) => item.priority === "High" && !item.isRead)
+    .filter(
+      (item) =>
+        ["URGENT", "HIGH"].includes(String(item.priority).toUpperCase()) &&
+        !item.isRead,
+    )
     .forEach((item) =>
       notifications.push({
         id: `announcement:${item.id}`,
@@ -181,6 +185,42 @@ export function getNotifications({
       a.date.localeCompare(b.date) ||
       (a.time || "").localeCompare(b.time || ""),
   );
+}
+
+export function getCampusAlerts({
+  tasks,
+  courses,
+  exams,
+  announcements,
+  now = new Date(),
+  preferences = {},
+}) {
+  const examLimit = new Date(now);
+  examLimit.setDate(examLimit.getDate() + 7);
+  const alerts = [
+    ...getNotifications({ tasks, courses, announcements, now, preferences }),
+    ...exams
+      .filter(
+        (exam) =>
+          exam.examDate >= getLocalDateString(now) &&
+          exam.examDate <= getLocalDateString(examLimit),
+      )
+      .map((exam) => ({
+        id: `exam:${exam.id}`,
+        type: "exam",
+        title: exam.title,
+        date: exam.examDate,
+        time: exam.startTime,
+        href: "/timetable",
+      })),
+  ];
+  return alerts
+    .map((alert) => ({ ...alert, isRead: false, derived: true }))
+    .sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        (a.time || "").localeCompare(b.time || ""),
+    );
 }
 
 export function searchCampus(

@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useLocalStorage } from "./hooks/useLocalStorage";
 import { CampusContext } from "./context/CampusContext";
+import { useAuth } from "./context/useAuth";
+import { api } from "./services/api";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import Dashboard from "./pages/Dashboard";
@@ -14,9 +22,9 @@ import Notifications from "./pages/Notifications";
 import ProfileSettings from "./pages/ProfileSettings";
 import GlobalSearch from "./pages/GlobalSearch";
 import Styleguide from "./pages/Styleguide";
+import AuthPage from "./pages/AuthPage";
 import Toast from "./components/Toast";
-
-const themeNames = ["light", "dark", "campus", "sunset"];
+import Skeleton from "./components/Skeleton";
 
 function getPreferredTheme() {
   if (
@@ -28,88 +36,105 @@ function getPreferredTheme() {
   return "light";
 }
 
-function readStoredValue(key, fallback) {
-  try {
-    const value = localStorage.getItem(key);
-    if (value === null) {
-      document.documentElement.dataset.theme = fallback.theme;
-      return { value: fallback, persist: true };
-    }
-    const parsed = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      console.warn(`Stored ${key} data was invalid; using defaults.`);
-      return { value: fallback, persist: false };
-    }
-    const hasInvalidField = [
-      ["name", (value) => typeof value === "string"],
-      ["studentId", (value) => typeof value === "string"],
-      ["major", (value) => typeof value === "string"],
-      ["year", (value) => typeof value === "string"],
-      ["theme", (value) => themeNames.includes(value)],
-    ].some(
-      ([field, isValid]) =>
-        parsed[field] !== undefined && !isValid(parsed[field]),
-    );
-    const storedProfile = {
-      ...fallback,
-      ...parsed,
-      name: typeof parsed.name === "string" ? parsed.name : fallback.name,
-      studentId:
-        typeof parsed.studentId === "string"
-          ? parsed.studentId
-          : fallback.studentId,
-      major: typeof parsed.major === "string" ? parsed.major : fallback.major,
-      year: typeof parsed.year === "string" ? parsed.year : fallback.year,
-      theme: themeNames.includes(parsed.theme) ? parsed.theme : fallback.theme,
-    };
-    document.documentElement.dataset.theme = storedProfile.theme;
-    if (hasInvalidField) {
-      console.warn(`Stored ${key} data was invalid; leaving it unchanged.`);
-    }
-    return { value: storedProfile, persist: !hasInvalidField };
-  } catch (error) {
-    console.error(`Could not read ${key} from localStorage.`, error);
-    document.documentElement.dataset.theme = fallback.theme;
-    return { value: fallback, persist: false };
-  }
-}
-
-function readNotificationState() {
-  try {
-    const stored = localStorage.getItem("campus-life:notifications-read");
-    if (stored === null) return { value: [], persist: true };
-    const value = JSON.parse(stored);
-    if (Array.isArray(value) && value.every((item) => typeof item === "string"))
-      return { value, persist: true };
-    console.warn(
-      "Stored notification state was invalid; leaving it unchanged.",
-    );
-  } catch (error) {
-    console.error(
-      "Could not read notification state from localStorage.",
-      error,
-    );
-  }
-  return { value: [], persist: false };
+function LoadingState({ label }) {
+  return (
+    <section
+      className="loading-state animate-fade-up"
+      role="status"
+      aria-label={label}
+      aria-busy="true"
+    >
+      <div className="loading-heading">
+        <Skeleton className="loading-eyebrow" width="8rem" height="12px" />
+        <Skeleton className="loading-title" width="min(24rem, 80%)" height="30px" />
+        <Skeleton className="loading-subtitle" width="min(32rem, 90%)" height="14px" />
+      </div>
+      <div className="loading-stat-grid">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div className="loading-stat-card" key={index}>
+            <Skeleton width="54%" height="12px" />
+            <Skeleton width="36%" height="26px" />
+            <Skeleton width="72%" height="10px" />
+          </div>
+        ))}
+      </div>
+      <div className="loading-content-grid">
+        {Array.from({ length: 2 }, (_, index) => (
+          <div className="loading-panel" key={index}>
+            <div className="loading-panel-heading">
+              <Skeleton width="54%" height="16px" />
+              <Skeleton width="78%" height="12px" />
+            </div>
+            {Array.from({ length: 3 }, (_, row) => (
+              <div className="loading-row" key={row}>
+                <Skeleton width="36px" height="36px" rounded />
+                <div className="loading-row-copy">
+                  <Skeleton width="76%" height="12px" />
+                  <Skeleton width="48%" height="10px" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function App() {
-  const { t } = useTranslation();
-  const [tasks, setTasks] = useLocalStorage("campus-life:tasks", "tasks");
-  const [courses, setCourses] = useLocalStorage(
-    "campus-life:courses",
-    "courses",
+  const { t, i18n } = useTranslation();
+  const {
+    user,
+    status: authStatus,
+    authError,
+    retry: retryAuth,
+    updateUser,
+  } = useAuth();
+  const userId = user?.id;
+  const userDisplayName = user?.displayName || "";
+  const userEmail = user?.email || "";
+  const location = useLocation();
+  const pageContentRef = useRef(null);
+  const [tasks, setTasksState] = useState([]);
+  const [courses, setCoursesState] = useState([]);
+  const [exams, setExamsState] = useState([]);
+  const [announcements, setAnnouncementsState] = useState([]);
+  const [resources, setResourcesState] = useState([]);
+  const [notifications, setNotificationsState] = useState([]);
+  const setTasks = useCallback((update) => {
+    setTasksState(update);
+    return true;
+  }, []);
+  const setCourses = useCallback((update) => {
+    setCoursesState(update);
+    return true;
+  }, []);
+  const setExams = useCallback((update) => {
+    setExamsState(update);
+    return true;
+  }, []);
+  const setAnnouncements = useCallback(
+    (update) => {
+      setAnnouncementsState(update);
+      return true;
+    },
+    [],
   );
-  const [announcements, setAnnouncements] = useLocalStorage(
-    "campus-life:announcements",
-    "announcements",
+  const setResources = useCallback(
+    (update) => {
+      setResourcesState(update);
+      return true;
+    },
+    [],
   );
-  const [resources, setResources] = useLocalStorage(
-    "campus-life:resources",
-    "resources",
+  const setNotifications = useCallback(
+    (update) => {
+      setNotificationsState(update);
+      return true;
+    },
+    [],
   );
-  const [profileSnapshot, setProfileSnapshot] = useState(() =>
-    readStoredValue("campus-life:profile", {
+  const [profile, setProfileState] = useState(() => ({
       name: "Toavina Romeo",
       studentId: "CS-2024-0842",
       major: t("profile.major"),
@@ -121,6 +146,7 @@ function App() {
       bio: "",
       avatar: "",
       theme: getPreferredTheme(),
+      language: i18n.resolvedLanguage === "en" ? "en" : "fr",
       followSystemTheme: false,
       accessibility: {
         textSize: "M",
@@ -133,15 +159,17 @@ function App() {
         messages: true,
         deadlines: true,
       },
-    }),
-  );
-  const profileRef = useRef(profileSnapshot);
-  const profile = profileSnapshot.value;
-  const [notificationSnapshot, setNotificationSnapshot] = useState(
-    readNotificationState,
-  );
-  const notificationRef = useRef(notificationSnapshot);
-  const readNotifications = notificationSnapshot.value;
+    }));
+  const profileRef = useRef(profile);
+  const profileWriteQueue = useRef(Promise.resolve());
+  const authUserRef = useRef(user);
+  useEffect(() => {
+    authUserRef.current = user;
+  }, [user]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [dataOwnerId, setDataOwnerId] = useState(null);
+  const loadedUserIdRef = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -151,44 +179,147 @@ function App() {
     setToast({ message, tone, id: Date.now() });
   }, []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
+  useLayoutEffect(() => {
+    if (!pageContentRef.current) return;
+    pageContentRef.current.scrollTop = 0;
+    pageContentRef.current.scrollLeft = 0;
+  }, [location.pathname]);
+
   const setProfile = useCallback((update) => {
-    const value =
-      typeof update === "function" ? update(profileRef.current.value) : update;
-    const next = { value, persist: false };
-    profileRef.current = next;
-    setProfileSnapshot(next);
+    const ownerId = user?.id;
+    if (!ownerId) return Promise.resolve(false);
+    const previous = profileRef.current;
+    const value = typeof update === "function" ? update(previous) : update;
+    profileRef.current = value;
+    setProfileState(value);
+
+    const save = profileWriteQueue.current.then(() => {
+      if (authUserRef.current?.id !== ownerId) {
+        throw new Error("The active account changed before this update was saved.");
+      }
+      return api.updateProfile(value);
+    });
+    profileWriteQueue.current = save.then(
+      () => undefined,
+      () => undefined,
+    );
+    return save
+      .then((saved) => {
+        if (profileRef.current === value) {
+          const next = { ...value, ...saved };
+          profileRef.current = next;
+          setProfileState(next);
+        }
+        updateUser({ displayName: value.name });
+        return true;
+      })
+      .catch((error) => {
+        console.error("Could not save profile settings to the API.", error);
+        if (profileRef.current === value) {
+          profileRef.current = previous;
+          setProfileState(previous);
+        }
+        window.dispatchEvent(
+          new CustomEvent("campus-life:api-error", { detail: error }),
+        );
+        return false;
+      });
+  }, [updateUser, user?.id]);
+  const loadData = useCallback(async () => {
+    if (!userId) return false;
     try {
-      localStorage.setItem("campus-life:profile", JSON.stringify(value));
+      const [
+        tasksData,
+        coursesData,
+        examsData,
+        announcementsData,
+        resourcesData,
+        notificationsData,
+        profileData,
+      ] = await Promise.all([
+        api.getTasks(),
+        api.getCourses(),
+        api.getExams(),
+        api.getAnnouncements(),
+        api.getResources(),
+        api.getNotifications(),
+        api.getProfile(),
+      ]);
+      const normalize = (response) => {
+        if (Array.isArray(response)) return response;
+        return Array.isArray(response?.data) ? response.data : [];
+      };
+      const defaultAccessibility = {
+        textSize: "M",
+        reduceMotion: false,
+        highContrast: false,
+      };
+      const defaultNotificationPreferences = {
+        events: true,
+        clubs: true,
+        messages: true,
+        deadlines: true,
+      };
+      const profileDefaults = {
+        name: userDisplayName,
+        studentId: "",
+        major: "",
+        year: "",
+        yearLevel: "3",
+        email: userEmail,
+        university: "",
+        phone: "",
+        bio: "",
+        avatar: "",
+        theme: getPreferredTheme(),
+        language: i18n.resolvedLanguage === "en" ? "en" : "fr",
+        followSystemTheme: false,
+        accessibility: defaultAccessibility,
+        notificationPreferences: defaultNotificationPreferences,
+      };
+      const resolvedProfile =
+        profileData ?? (await api.updateProfile(profileDefaults));
+      const nextProfile = {
+        ...profileDefaults,
+        ...resolvedProfile,
+        accessibility: {
+          ...profileDefaults.accessibility,
+          ...(resolvedProfile.accessibility || {}),
+        },
+        notificationPreferences: {
+          ...profileDefaults.notificationPreferences,
+          ...(resolvedProfile.notificationPreferences || {}),
+        },
+      };
+      profileRef.current = nextProfile;
+      setProfileState(nextProfile);
+      updateUser({ displayName: nextProfile.name, email: userEmail });
+      setTasksState(normalize(tasksData));
+      setCoursesState(normalize(coursesData));
+      setExamsState(normalize(examsData));
+      setAnnouncementsState(normalize(announcementsData));
+      setResourcesState(normalize(resourcesData));
+      setNotificationsState(normalize(notificationsData));
+      setDataOwnerId(userId);
+      setLoadError("");
+      if (resolvedProfile.language === "fr" || resolvedProfile.language === "en") {
+        await i18n.changeLanguage(resolvedProfile.language);
+      }
       return true;
     } catch (error) {
-      console.error("Could not save profile settings to localStorage.", error);
-      window.dispatchEvent(new Event("campus-life:storage-error"));
+      console.error("Could not load CAMPUS LIFE data from the API.", error);
+      setDataOwnerId(null);
+      setLoadError(error.message);
       return false;
+    } finally {
+      setLoading(false);
     }
-  }, []);
-  const setReadNotifications = useCallback((update) => {
-    const value =
-      typeof update === "function"
-        ? update(notificationRef.current.value)
-        : update;
-    const next = { value, persist: false };
-    notificationRef.current = next;
-    setNotificationSnapshot(next);
-    try {
-      localStorage.setItem(
-        "campus-life:notifications-read",
-        JSON.stringify(value),
-      );
-      return true;
-    } catch (error) {
-      console.error(
-        "Could not save notification state to localStorage.",
-        error,
-      );
-      window.dispatchEvent(new Event("campus-life:storage-error"));
-      return false;
-    }
-  }, []);
+  }, [i18n, updateUser, userDisplayName, userEmail, userId]);
+  const reload = useCallback(() => {
+    setLoading(true);
+    setLoadError("");
+    return loadData();
+  }, [loadData]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -197,15 +328,28 @@ function App() {
   }, [toast]);
 
   useEffect(() => {
-    const reportStorageError = () =>
-      showToast(t("common.storageError"), "error");
-    window.addEventListener("campus-life:storage-error", reportStorageError);
+    const reportApiError = () =>
+      showToast(t("common.apiError"), "error");
+    window.addEventListener("campus-life:api-error", reportApiError);
     return () =>
-      window.removeEventListener(
-        "campus-life:storage-error",
-        reportStorageError,
-      );
+      window.removeEventListener("campus-life:api-error", reportApiError);
   }, [showToast, t]);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated" || !userId) {
+      loadedUserIdRef.current = null;
+      return;
+    }
+    if (loadedUserIdRef.current === userId) return;
+
+    loadedUserIdRef.current = userId;
+    // oxlint-disable-next-line react/set-state-in-effect
+    void loadData().then((succeeded) => {
+      if (!succeeded && loadedUserIdRef.current === userId) {
+        loadedUserIdRef.current = null;
+      }
+    });
+  }, [authStatus, loadData, userId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -226,35 +370,6 @@ function App() {
     window.addEventListener("keydown", handleSidebarShortcut);
     return () => window.removeEventListener("keydown", handleSidebarShortcut);
   }, []);
-
-  useEffect(() => {
-    if (!profileRef.current.persist) return;
-    try {
-      localStorage.setItem(
-        "campus-life:profile",
-        JSON.stringify(profileRef.current.value),
-      );
-    } catch (error) {
-      console.error("Could not save profile settings to localStorage.", error);
-      window.dispatchEvent(new Event("campus-life:storage-error"));
-    }
-  }, [profileSnapshot]);
-
-  useEffect(() => {
-    if (!notificationRef.current.persist) return;
-    try {
-      localStorage.setItem(
-        "campus-life:notifications-read",
-        JSON.stringify(notificationRef.current.value),
-      );
-    } catch (error) {
-      console.error(
-        "Could not save notification state to localStorage.",
-        error,
-      );
-      window.dispatchEvent(new Event("campus-life:storage-error"));
-    }
-  }, [notificationSnapshot]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -285,6 +400,49 @@ function App() {
       ?.setAttribute("content", t("app.description"));
   }, [t]);
 
+  if (authStatus === "checking") {
+    return (
+      <main className="auth-page" role="status" aria-live="polite">
+        {t("common.loading")}
+      </main>
+    );
+  }
+  if (authStatus === "error") {
+    return (
+      <main className="auth-page">
+        <section className="auth-card" role="alert">
+          <h1>{t("common.apiError")}</h1>
+          <p>{authError}</p>
+          <button
+            type="button"
+            className="button button-primary auth-submit"
+            onClick={() => retryAuth().catch(() => {})}
+          >
+            {t("common.retry")}
+          </button>
+        </section>
+      </main>
+    );
+  }
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/login" element={<AuthPage mode="login" />} />
+        <Route path="/register" element={<AuthPage mode="register" />} />
+        <Route
+          path="*"
+          element={
+            <Navigate
+              to="/login"
+              replace
+              state={{ from: location.pathname }}
+            />
+          }
+        />
+      </Routes>
+    );
+  }
+
   return (
     <CampusContext.Provider
       value={{
@@ -292,16 +450,21 @@ function App() {
         setTasks,
         courses,
         setCourses,
+        exams,
+        setExams,
         announcements,
         setAnnouncements,
         resources,
         setResources,
+        notifications,
+        setNotifications,
         profile,
         setProfile,
         showToast,
-        readNotifications,
-        setReadNotifications,
         now,
+        loading,
+        loadError,
+        reload,
       }}
     >
       <div
@@ -329,21 +492,39 @@ function App() {
             menuButtonRef={menuButtonRef}
             onMenuClick={() => setMenuOpen((open) => !open)}
           />
-          <main className="page-content">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/tasks" element={<Tasks />} />
-              <Route path="/timetable" element={<Timetable />} />
-              <Route path="/announcements" element={<Announcements />} />
-              <Route path="/resources" element={<Resources />} />
-              <Route path="/notifications" element={<Notifications />} />
-              <Route path="/profile" element={<ProfileSettings />} />
-              <Route path="/search" element={<GlobalSearch />} />
-              {import.meta.env.DEV && (
-                <Route path="/styleguide" element={<Styleguide />} />
-              )}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+          <main ref={pageContentRef} className="page-content">
+            {loading ? (
+              <LoadingState label={t("common.loading")} />
+            ) : loadError ? (
+              <section className="panel" role="alert">
+                <p>{t("common.apiError")}</p>
+                <p>{loadError}</p>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={reload}
+                >
+                  {t("common.retry")}
+                </button>
+              </section>
+            ) : dataOwnerId !== user.id ? (
+              <LoadingState label={t("common.loading")} />
+            ) : (
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/tasks" element={<Tasks />} />
+                <Route path="/timetable" element={<Timetable />} />
+                <Route path="/announcements" element={<Announcements />} />
+                <Route path="/resources" element={<Resources />} />
+                <Route path="/notifications" element={<Notifications />} />
+                <Route path="/profile" element={<ProfileSettings />} />
+                <Route path="/search" element={<GlobalSearch />} />
+                {import.meta.env.DEV && (
+                  <Route path="/styleguide" element={<Styleguide />} />
+                )}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            )}
           </main>
         </div>
         <div className="toast-region">

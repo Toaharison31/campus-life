@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -6,6 +7,7 @@ import {
   CalendarDays,
   Check,
   Clock3,
+  GraduationCap,
   NotebookTabs,
   Plus,
   Sparkles,
@@ -13,6 +15,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useCampus } from "../context/CampusContext";
+import { api } from "../services/api";
 import Badge from "../components/Badge";
 import Button from "../components/Button";
 import Card from "../components/Card";
@@ -25,6 +28,7 @@ import {
 } from "../services/dates";
 import {
   getClassesForDay,
+  getCampusAlerts,
   getNextClass,
   getTaskStats,
   getWeeklyActivity,
@@ -39,8 +43,34 @@ import {
 export default function Dashboard() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { tasks, courses, announcements, resources, profile, now } =
+  const { tasks, courses, exams, announcements, resources, profile, now } =
     useCampus();
+  const [summary, setSummary] = useState(null);
+  const [summaryError, setSummaryError] = useState(false);
+  const summaryRequestRef = useRef(null);
+  useEffect(() => {
+    let active = true;
+    if (!summaryRequestRef.current) {
+      summaryRequestRef.current = api.getDashboardSummary();
+    }
+    const request = summaryRequestRef.current;
+    request
+      .then((result) => {
+        if (active) setSummary(result);
+      })
+      .catch((error) => {
+        console.error("Could not load dashboard analytics.", error);
+        if (active) setSummaryError(true);
+      })
+      .finally(() => {
+        if (summaryRequestRef.current === request) {
+          summaryRequestRef.current = null;
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const displayName = profile.name.trim() || t("profile.studentName");
   const {
     completed,
@@ -68,7 +98,41 @@ export default function Dashboard() {
     todayClasses.length > 0 &&
     todayClasses.every((course) => classState(course) === "done");
   const weeklyActivity = getWeeklyActivity(tasks);
+  const alerts = getCampusAlerts({
+    tasks,
+    courses,
+    exams,
+    announcements,
+    now,
+    preferences: profile.notificationPreferences,
+  }).slice(0, 5);
+  const nextClassDate = nextClass ? new Date(now) : null;
+  if (nextClassDate) {
+    nextClassDate.setDate(nextClassDate.getDate() + nextClass.dayOffset);
+    const [hour, minute] = nextClass.startTime.split(":").map(Number);
+    nextClassDate.setHours(hour, minute, 0, 0);
+  }
+  const minutesUntilNextClass = nextClassDate
+    ? Math.max(0, Math.ceil((nextClassDate.getTime() - now.getTime()) / 60_000))
+    : null;
   const activityMax = Math.max(1, ...weeklyActivity.map((day) => day.count));
+  const urgentDeadline = new Date(now);
+  urgentDeadline.setDate(urgentDeadline.getDate() + 2);
+  const urgentLimit = getLocalDateString(urgentDeadline);
+  const taskStats = summary?.tasks || {
+    total: tasks.length,
+    completed,
+    pending,
+    overdue,
+    urgent: tasks.filter(
+      (task) =>
+        task.status !== "Completed" &&
+        task.priority === "High" &&
+        task.dueDate &&
+        task.dueDate <= urgentLimit,
+    ).length,
+    completion: progress,
+  };
   const recentTasks = [...tasks]
     .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))
     .slice(0, 4);
@@ -81,7 +145,9 @@ export default function Dashboard() {
       <section className="dashboard-hero">
         <div className="dashboard-hero-copy">
           <Badge tone="hero">
-            <Sparkles size={14} aria-hidden="true" />
+            <span className="hero-brand-symbol" aria-hidden="true">
+              <BookOpen size={15} strokeWidth={2.2} />
+            </span>
             {t("dashboard.eyebrow")}
           </Badge>
           <h1>
@@ -117,8 +183,23 @@ export default function Dashboard() {
             <ArrowRight size={17} />
           </Link>
         </div>
-        <div className="hero-decoration hero-decoration-one" />
-        <div className="hero-decoration hero-decoration-two" />
+        <div className="hero-campus-emblem" aria-hidden="true">
+          <div className="hero-campus-orbit" />
+          <div className="hero-campus-mark">
+            <GraduationCap size={54} strokeWidth={1.55} />
+            <span>CAMPUS LIFE</span>
+          </div>
+          <span className="hero-emblem-chip hero-emblem-calendar">
+            <CalendarDays size={18} />
+          </span>
+          <span className="hero-emblem-chip hero-emblem-book">
+            <BookOpen size={18} />
+          </span>
+          <span className="hero-emblem-chip hero-emblem-check">
+            <Check size={18} />
+          </span>
+          <Sparkles className="hero-emblem-sparkle" size={18} />
+        </div>
       </section>
 
       <div className="dashboard-date-line">
@@ -132,7 +213,7 @@ export default function Dashboard() {
         <StatCard
           icon={NotebookTabs}
           label={t("dashboard.totalTasks")}
-          value={tasks.length}
+          value={taskStats.total}
           note={t("dashboard.allCourses")}
           tone="blue"
           onClick={() => navigate("/tasks")}
@@ -140,25 +221,27 @@ export default function Dashboard() {
         <StatCard
           icon={Check}
           label={t("dashboard.completed")}
-          value={completed}
-          note={t("dashboard.completionRate", { percent: progress })}
+          value={taskStats.completed}
+          note={t("dashboard.completionRate", { percent: taskStats.completion })}
           tone="green"
           onClick={() => navigate("/tasks?status=Completed")}
         />
         <StatCard
           icon={Clock3}
           label={t("dashboard.pending")}
-          value={pending}
-          note={t("dashboard.keepMomentum")}
+          value={taskStats.pending}
+          note={t("dashboard.urgentTasksCount", {
+            count: taskStats.urgent || 0,
+          })}
           tone="amber"
           onClick={() => navigate("/tasks?status=Pending")}
         />
         <StatCard
           icon={AlertCircle}
           label={t("dashboard.overdue")}
-          value={overdue}
+          value={taskStats.overdue}
           note={
-            overdue === 0
+            taskStats.overdue === 0
               ? t("dashboard.allCaughtUp")
               : t("dashboard.overdueTasks")
           }
@@ -166,6 +249,53 @@ export default function Dashboard() {
           onClick={() => navigate("/tasks?status=Overdue")}
         />
       </section>
+
+      <Card className="dashboard-card alert-center">
+        <div className="panel-heading">
+          <div>
+            <h2>{t("dashboard.alertCenter")}</h2>
+            <p>{t("dashboard.alertCenterIntro")}</p>
+          </div>
+          <Link className="text-link" to="/notifications">
+            {t("dashboard.allAlerts")} <ArrowRight size={15} />
+          </Link>
+        </div>
+        {summaryError && (
+          <p className="alert-center-note">{t("dashboard.analyticsUnavailable")}</p>
+        )}
+        {alerts.length ? (
+          <ul className="alert-center-list">
+            {alerts.map((alert) => (
+              <li key={alert.id}>
+                <Link to={alert.href} className={`alert-center-item alert-${alert.type}`}>
+                  <span className="alert-center-icon">
+                    {alert.type === "class" || alert.type === "exam" ? (
+                      <CalendarDays size={17} />
+                    ) : alert.type === "announcement" ? (
+                      <Sparkles size={17} />
+                    ) : alert.type === "overdue" ? (
+                      <AlertCircle size={17} />
+                    ) : (
+                      <Clock3 size={17} />
+                    )}
+                  </span>
+                  <span className="alert-center-copy">
+                    <strong>{alert.title}</strong>
+                    <small>
+                      {t(`dashboard.alertTypes.${alert.type}`)} ·{" "}
+                      {formatShortDate(alert.date, language)}
+                      {alert.time ? ` · ${alert.time}` : ""}
+                    </small>
+                  </span>
+                  <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="alert-center-empty">{t("dashboard.noAlerts")}</p>
+        )}
+      </Card>
 
       <div className="dashboard-grid">
         <Card className="dashboard-card task-panel">
@@ -231,23 +361,25 @@ export default function Dashboard() {
           <div className="task-progress">
             <div
               className="progress-ring"
-              style={{ "--progress-value": `${progress}%` }}
+              style={{ "--progress-value": `${taskStats.completion}%` }}
               role="img"
-              aria-label={t("dashboard.completionRate", { percent: progress })}
+              aria-label={t("dashboard.completionRate", {
+                percent: taskStats.completion,
+              })}
             >
-              <span>{progress}%</span>
+              <span>{taskStats.completion}%</span>
             </div>
             <div className="task-progress-copy">
               <strong>{t("dashboard.taskCompletion")}</strong>
               <span>
                 {t("dashboard.completedOf", {
-                  completed,
-                  total: tasks.length,
-                  count: tasks.length,
+                  completed: taskStats.completed,
+                  total: taskStats.total,
+                  count: taskStats.total,
                 })}
               </span>
               <div className="progress-track" aria-hidden="true">
-                <i style={{ width: `${progress}%` }} />
+                <i style={{ width: `${taskStats.completion}%` }} />
               </div>
             </div>
           </div>
@@ -268,6 +400,11 @@ export default function Dashboard() {
               {todayClasses.map((course, index) => (
                 <div
                   className={`class-row ${index === 0 && !allClassesDone ? "class-row-next" : ""} ${classState(course) === "done" ? "class-row-done" : ""} ${getCourseColorClass(course)}`}
+                  style={
+                    course.color
+                      ? { "--course-accent-color": course.color }
+                      : undefined
+                  }
                   key={course.id}
                 >
                   <div className="class-time">
@@ -302,6 +439,14 @@ export default function Dashboard() {
           )}
           {allClassesDone && (
             <p className="no-more-classes">{t("dashboard.noMoreClasses")}</p>
+          )}
+          {nextClass && minutesUntilNextClass !== null && minutesUntilNextClass < 1440 && (
+            <p className="class-countdown">
+              {t("dashboard.classCountdown", {
+                title: nextClass.name,
+                minutes: minutesUntilNextClass,
+              })}
+            </p>
           )}
           <Link className="schedule-footer" to="/timetable">
             {nextClass

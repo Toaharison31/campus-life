@@ -9,6 +9,7 @@ import {
   Download,
   FileUp,
   Info,
+  LockKeyhole,
   Mail,
   MessageCircle,
   Palette,
@@ -21,6 +22,8 @@ import {
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { useCampus } from "../context/CampusContext";
+import { useAuth } from "../context/useAuth";
+import { api } from "../services/api";
 import Card from "../components/Card";
 import FormSelect from "../components/FormSelect";
 import PageHeader from "../components/PageHeader";
@@ -36,15 +39,6 @@ import {
 import { getStudyStreak } from "../services/studentData";
 import "./ProfileSettings.css";
 
-const STORAGE_KEYS = [
-  "campus-life:profile",
-  "campus-life:tasks",
-  "campus-life:courses",
-  "campus-life:announcements",
-  "campus-life:resources",
-  "campus-life:notifications-read",
-  "campus-life:language",
-];
 const sections = ["profile", "preferences", "notifications", "privacy"];
 const majorAliases = {
   computerScience: ["computer science", "informatique"],
@@ -110,27 +104,6 @@ function sameDraft(a, b) {
   return Object.keys(a).every((key) => a[key] === b[key]);
 }
 
-function validBackupValue(key, value) {
-  if (value === null) return true;
-  if (typeof value !== "string") return false;
-  if (key === "campus-life:language") return value === "en" || value === "fr";
-  try {
-    const parsed = JSON.parse(value);
-    if (key === "campus-life:profile")
-      return (
-        Boolean(parsed) && typeof parsed === "object" && !Array.isArray(parsed)
-      );
-    if (key === "campus-life:notifications-read")
-      return (
-        Array.isArray(parsed) &&
-        parsed.every((item) => typeof item === "string")
-      );
-    return Array.isArray(parsed);
-  } catch {
-    return false;
-  }
-}
-
 async function resizeImage(file) {
   if (!file.type.startsWith("image/")) throw new Error("not-image");
   if (file.size > 8 * 1024 * 1024) throw new Error("too-large");
@@ -148,7 +121,16 @@ async function resizeImage(file) {
 
 export default function ProfileSettings() {
   const { t, i18n } = useTranslation();
-  const { profile, setProfile, showToast, tasks, courses, now } = useCampus();
+  const {
+    profile,
+    setProfile,
+    showToast,
+    tasks,
+    courses,
+    now,
+    reload,
+  } = useCampus();
+  const { user, changePassword } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = sections.includes(searchParams.get("tab"))
     ? searchParams.get("tab")
@@ -157,8 +139,15 @@ export default function ProfileSettings() {
   const [showErrors, setShowErrors] = useState(false);
   const [saveStatus, setSaveStatus] = useState("saved");
   const [confirmAction, setConfirmAction] = useState("");
+  const [passwordDraft, setPasswordDraft] = useState({
+    current: "",
+    next: "",
+    confirm: "",
+  });
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const importRef = useRef(null);
-  const skipLeaveWarning = useRef(false);
   const errors = useMemo(() => validateDraft(draft), [draft]);
   const dirty = !sameDraft(draft, createDraft(profile));
   const displayName = draft.name.trim() || t("profile.studentName");
@@ -187,7 +176,7 @@ export default function ProfileSettings() {
   };
 
   const saveDraft = useCallback(
-    (notify = true) => {
+    async (notify = true) => {
       const currentErrors = validateDraft(draft);
       if (Object.keys(currentErrors).length) {
         setShowErrors(true);
@@ -197,7 +186,7 @@ export default function ProfileSettings() {
           ?.focus();
         return false;
       }
-      const saved = setProfile((current) => ({
+      const saved = await setProfile((current) => ({
         ...current,
         ...draft,
         majorKey: Object.hasOwn(majorAliases, draft.major) ? draft.major : "",
@@ -221,8 +210,8 @@ export default function ProfileSettings() {
     let saveTimer;
     const timer = window.setTimeout(() => {
       setSaveStatus("saving");
-      saveTimer = window.setTimeout(() => {
-        const saved = saveDraft(false);
+      saveTimer = window.setTimeout(async () => {
+        const saved = await saveDraft(false);
         if (saved) showToast(t("profileSettings.autosavedToast"));
       }, 160);
     }, 850);
@@ -234,7 +223,7 @@ export default function ProfileSettings() {
 
   useEffect(() => {
     const warnBeforeUnload = (event) => {
-      if (!dirty || skipLeaveWarning.current) return;
+    if (!dirty) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -272,14 +261,48 @@ export default function ProfileSettings() {
     );
   };
 
-  const updatePreference = (key, value) => {
-    setProfile((current) => ({ ...current, [key]: value }));
+  const updatePreference = async (key, value) => {
+    const saved = await setProfile((current) => ({ ...current, [key]: value }));
+    if (!saved) showToast(t("common.apiError"), "error");
+  };
+
+  const submitPasswordChange = async (event) => {
+    event.preventDefault();
+    setPasswordError("");
+    setPasswordMessage("");
+    if (passwordDraft.next.length < 12 || passwordDraft.next.length > 128) {
+      setPasswordError(t("auth.passwordLength"));
+      return;
+    }
+    if (passwordDraft.next !== passwordDraft.confirm) {
+      setPasswordError(t("auth.passwordMismatch"));
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await changePassword({
+        currentPassword: passwordDraft.current,
+        newPassword: passwordDraft.next,
+      });
+      setPasswordDraft({ current: "", next: "", confirm: "" });
+      setPasswordMessage(t("auth.passwordChanged"));
+    } catch (error) {
+      setPasswordError(
+        error.statusCode === 401
+          ? t("auth.passwordChangeFailed")
+          : error.statusCode === 400
+            ? t("auth.passwordChangeFailed")
+            : t("auth.requestFailed"),
+      );
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const uploadAvatar = async (file) => {
     try {
       const avatar = await resizeImage(file);
-      const persisted = setProfile((current) => ({ ...current, avatar }));
+      const persisted = await setProfile((current) => ({ ...current, avatar }));
       if (persisted) showToast(t("profileSettings.photoSaved"));
     } catch (error) {
       console.error("Could not process the selected profile image.", error);
@@ -294,15 +317,39 @@ export default function ProfileSettings() {
     }
   };
 
-  const exportData = () => {
+  const exportData = async () => {
     try {
-      const payload = {
-        application: "campus-life",
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        data: Object.fromEntries(
-          STORAGE_KEYS.map((key) => [key, localStorage.getItem(key)]),
-        ),
+      const [
+        profileData,
+        taskData,
+        courseData,
+        examData,
+        announcementData,
+        resourceData,
+        notificationData,
+      ] =
+        await Promise.all([
+          api.getProfile(),
+          api.getTasks(),
+          api.getCourses(),
+          api.getExams(),
+          api.getAnnouncements(),
+          api.getResources(),
+          api.getNotifications(),
+        ]);
+        const payload = {
+          application: "campus-life",
+          version: 2,
+          exportedAt: new Date().toISOString(),
+          data: {
+            profile: profileData,
+            tasks: taskData,
+            courses: courseData,
+            exams: examData,
+            announcements: announcementData.filter((item) => item.isOwner),
+            resources: resourceData.filter((item) => item.isOwner),
+            notifications: notificationData,
+          },
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
         type: "application/json",
@@ -316,7 +363,7 @@ export default function ProfileSettings() {
       showToast(t("profileSettings.exportedToast"));
     } catch (error) {
       console.error("Could not export CAMPUS LIFE data.", error);
-      showToast(t("common.storageError"), "error");
+      showToast(t("common.apiError"), "error");
     }
   };
 
@@ -328,53 +375,69 @@ export default function ProfileSettings() {
       const parsed = JSON.parse(await file.text());
       if (
         parsed.application !== "campus-life" ||
-        parsed.version !== 1 ||
+        ![1, 2].includes(parsed.version) ||
         !parsed.data ||
         typeof parsed.data !== "object"
       ) {
         throw new Error("invalid-export");
       }
-      if (
-        STORAGE_KEYS.some(
-          (key) => !validBackupValue(key, parsed.data[key] ?? null),
-        )
-      )
-        throw new Error("invalid-export");
-      for (const key of STORAGE_KEYS) {
-        const value = parsed.data[key];
-        if (value === null) localStorage.removeItem(key);
-        else if (typeof value === "string") localStorage.setItem(key, value);
+
+      let data = parsed.data;
+      if (parsed.version === 1) {
+        const readLegacy = (key) => {
+          const value = data[key];
+          return typeof value === "string" ? JSON.parse(value) : value;
+        };
+        data = {
+          profile: readLegacy("campus-life:profile"),
+          tasks: readLegacy("campus-life:tasks"),
+          courses: readLegacy("campus-life:courses"),
+          exams: [],
+          announcements: readLegacy("campus-life:announcements"),
+          resources: readLegacy("campus-life:resources"),
+          notifications: [],
+        };
       }
-      skipLeaveWarning.current = true;
-      window.location.reload();
+
+      const collections = [
+        "courses",
+        "tasks",
+        "exams",
+        "announcements",
+        "resources",
+        "notifications",
+      ];
+      if (
+        collections.some(
+          (name) => name !== "exams" && !Array.isArray(data[name]),
+        ) ||
+        !data.profile ||
+        typeof data.profile !== "object" ||
+        Array.isArray(data.profile)
+      ) {
+        throw new Error("invalid-export");
+      }
+      if (!Array.isArray(data.exams)) data.exams = [];
+      await api.replaceData(data);
+      await reload();
+      showToast(t("profileSettings.importedToast"));
     } catch (error) {
       console.error("Could not import the selected backup.", error);
       showToast(t("profileSettings.importError"), "error");
     }
   };
 
-  const confirmDataAction = () => {
+  const confirmDataAction = async () => {
     if (confirmAction === "clear") {
+      setConfirmAction("");
       try {
-        for (const key of Object.keys(localStorage)) {
-          if (key.startsWith("campus-life:")) localStorage.removeItem(key);
-        }
-        for (const key of [
-          "campus-life:tasks",
-          "campus-life:courses",
-          "campus-life:announcements",
-          "campus-life:resources",
-        ]) {
-          localStorage.setItem(key, "[]");
-        }
+        await api.clearData();
+        await reload();
+        showToast(t("profileSettings.clearedToast"));
       } catch (error) {
-        console.error("Could not clear local CAMPUS LIFE data.", error);
-        showToast(t("common.storageError"), "error");
-        setConfirmAction("");
-        return;
+        console.error("Could not clear CAMPUS LIFE data from the API.", error);
+        showToast(t("common.apiError"), "error");
       }
-      skipLeaveWarning.current = true;
-      window.location.reload();
       return;
     }
     if (confirmAction === "import") {
@@ -428,12 +491,13 @@ export default function ProfileSettings() {
       <SettingsTabs active={activeTab} onChange={setTab} />
 
       <div
-        id={`settings-panel-${activeTab}`}
+        id="settings-panel"
         role="tabpanel"
         aria-labelledby={`settings-tab-${activeTab}`}
         className="profile-tab-panel"
       >
         {activeTab === "profile" && (
+          <>
           <div className="profile-settings-columns">
             <Card className="profile-settings-card student-info-card">
               <div className="profile-section-heading">
@@ -530,14 +594,10 @@ export default function ProfileSettings() {
                 <FloatingInput
                   id="profile-email"
                   label={t("profileSettings.email")}
-                  value={draft.email}
+                  value={user?.email || draft.email}
                   type="email"
                   autoComplete="email"
-                  error={showErrors ? errors.email : ""}
-                  success={
-                    showErrors && !errors.email && Boolean(draft.email.trim())
-                  }
-                  onChange={(event) => updateDraft("email", event.target.value)}
+                  readOnly
                 />
                 <FloatingInput
                   id="profile-university"
@@ -633,6 +693,89 @@ export default function ProfileSettings() {
               </button>
             </Card>
           </div>
+          <Card className="profile-settings-card account-security-card">
+            <div className="profile-section-heading">
+              <span className="settings-icon-badge">
+                <LockKeyhole size={20} />
+              </span>
+              <div>
+                <h2>{t("auth.accountSecurity")}</h2>
+                <p>{t("auth.accountSecurityIntro")}</p>
+              </div>
+            </div>
+            <p className="account-email">
+              <strong>{t("profileSettings.email")}:</strong> {user?.email}
+            </p>
+            <form className="account-password-form" onSubmit={submitPasswordChange}>
+              <label>
+                <span>{t("auth.currentPassword")}</span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={passwordDraft.current}
+                  onChange={(event) =>
+                    setPasswordDraft((current) => ({
+                      ...current,
+                      current: event.target.value,
+                    }))
+                  }
+                  required
+                />
+              </label>
+              <label>
+                <span>{t("auth.newPassword")}</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={128}
+                  value={passwordDraft.next}
+                  onChange={(event) =>
+                    setPasswordDraft((current) => ({
+                      ...current,
+                      next: event.target.value,
+                    }))
+                  }
+                  required
+                />
+              </label>
+              <label>
+                <span>{t("auth.confirmPassword")}</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={128}
+                  value={passwordDraft.confirm}
+                  onChange={(event) =>
+                    setPasswordDraft((current) => ({
+                      ...current,
+                      confirm: event.target.value,
+                    }))
+                  }
+                  required
+                />
+              </label>
+              {passwordError && (
+                <p className="auth-error" role="alert">
+                  {passwordError}
+                </p>
+              )}
+              {passwordMessage && (
+                <p className="account-password-success" role="status">
+                  {passwordMessage}
+                </p>
+              )}
+              <button
+                className="button button-primary"
+                type="submit"
+                disabled={passwordSaving}
+              >
+                {t(passwordSaving ? "auth.working" : "auth.changePassword")}
+              </button>
+            </form>
+          </Card>
+          </>
         )}
 
         {activeTab === "preferences" && (
@@ -839,7 +982,7 @@ export default function ProfileSettings() {
                 </div>
                 <div>
                   <dt>{t("profileSettings.storageLocation")}</dt>
-                  <dd>{t("profileSettings.thisBrowser")}</dd>
+                  <dd>{t("profileSettings.serverDatabase")}</dd>
                 </div>
               </dl>
               <details className="keyboard-shortcuts">

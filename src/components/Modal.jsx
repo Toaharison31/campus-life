@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
@@ -7,9 +7,29 @@ export default function Modal({ title, onClose, children, wide = false }) {
   const { t } = useTranslation();
   const panelRef = useRef(null);
   const onCloseRef = useRef(onClose);
+  const closeTimerRef = useRef(null);
+  const isClosingRef = useRef(false);
+  const [closing, setClosing] = useState(false);
   const previouslyFocusedRef = useRef(
     typeof document === "undefined" ? null : document.activeElement,
   );
+  const requestClose = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    const reduceMotion =
+      document.documentElement.dataset.reduceMotion === "true" ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      onCloseRef.current();
+      return;
+    }
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(
+      () => onCloseRef.current(),
+      160,
+    );
+  }, []);
+
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
@@ -31,7 +51,7 @@ export default function Modal({ title, onClose, children, wide = false }) {
     const onKeyDown = (event) => {
       if (event.key === "Escape") {
         if (event.defaultPrevented) return;
-        onCloseRef.current();
+        requestClose();
         return;
       }
       if (event.key !== "Tab" || !panel) return;
@@ -59,6 +79,9 @@ export default function Modal({ title, onClose, children, wide = false }) {
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
       if (
         previouslyFocused instanceof HTMLElement &&
         previouslyFocused.isConnected
@@ -66,16 +89,18 @@ export default function Modal({ title, onClose, children, wide = false }) {
         previouslyFocused.focus();
       }
     };
-  }, []);
+  }, [requestClose]);
 
   return createPortal(
     <div
-      className="modal-backdrop"
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+      className={`modal-backdrop ${closing ? "is-closing" : ""}`}
+      onMouseDown={(event) =>
+        event.target === event.currentTarget && requestClose()
+      }
     >
       <section
         ref={panelRef}
-        className={`modal-panel ${wide ? "modal-wide" : ""}`}
+        className={`modal-panel animate-pop-in ${wide ? "modal-wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -86,7 +111,7 @@ export default function Modal({ title, onClose, children, wide = false }) {
           <button
             className="icon-button"
             aria-label={t("common.closeDialog")}
-            onClick={onClose}
+            onClick={requestClose}
           >
             <X size={19} />
           </button>

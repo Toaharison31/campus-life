@@ -18,7 +18,7 @@ import { Link } from "react-router-dom";
 import { useCampus } from "../context/CampusContext";
 import { CountBadge } from "./StatusBadges";
 import { getLocalDateString } from "../services/dates";
-import { getNotifications, getTaskStats } from "../services/studentData";
+import { getTaskStats } from "../services/studentData";
 
 const links = [
   { to: "/", label: "navigation.dashboard", icon: House, end: true },
@@ -52,24 +52,14 @@ export default function Sidebar({
   const {
     profile,
     tasks,
-    courses,
     announcements,
-    readNotifications,
+    notifications,
     now,
   } = useCampus();
-  const notificationItems = getNotifications({
-    tasks,
-    courses,
-    announcements,
-    now,
-    preferences: profile.notificationPreferences,
-  });
   const counts = {
     "/tasks": getTaskStats(tasks, getLocalDateString(now)).pending,
     "/announcements": announcements.filter((item) => !item.isRead).length,
-    "/notifications": notificationItems.filter(
-      (item) => !readNotifications.includes(item.id),
-    ).length,
+    "/notifications": notifications.filter((item) => !item.isRead).length,
   };
   const displayName = profile.name.trim() || t("profile.studentName");
   const initials = displayName
@@ -135,7 +125,7 @@ export default function Sidebar({
       >
         <div className="brand-row">
           <span className="brand-mark">
-            <GraduationCap size={22} />
+            <GraduationCap size={24} />
           </span>
           <span className="brand-name">
             campus<span>life</span>

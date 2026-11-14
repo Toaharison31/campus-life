@@ -17,6 +17,11 @@ function getDateParts(value) {
   return { year, month: month - 1, day };
 }
 
+function formatNumericDate(value) {
+  const [year, month, day] = value.split("-");
+  return `${day}-${month}-${year}`;
+}
+
 function getMonthDate(year, month) {
   const date = new Date(0);
   date.setUTCHours(0, 0, 0, 0);
@@ -190,12 +195,7 @@ export default function DatePicker({
           className={value && isValidDateString(value) ? "" : "placeholder"}
         >
           {value && isValidDateString(value)
-            ? new Date(`${value}T12:00:00Z`).toLocaleDateString(locale, {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                timeZone: "UTC",
-              })
+            ? formatNumericDate(value)
             : t("datePicker.placeholder")}
         </span>
         <CalendarDays size={18} aria-hidden="true" />

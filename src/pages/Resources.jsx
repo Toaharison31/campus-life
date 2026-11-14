@@ -15,9 +15,9 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCampus } from "../context/CampusContext";
-import { createId } from "../services/storage";
+import { useAuth } from "../context/useAuth";
+import { api } from "../services/api";
 import PageHeader from "../components/PageHeader";
-import { getLocalDateString } from "../services/dates";
 import Modal from "../components/Modal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import FormSelect from "../components/FormSelect";
@@ -41,6 +41,7 @@ const blank = {
   type: "Article",
   url: "",
   courseId: "",
+  isPublic: false,
 };
 const typeIcon = (type) =>
   type === "Video"
@@ -63,6 +64,8 @@ function isSafeHttpUrl(value) {
 export default function Resources() {
   const { t } = useTranslation();
   const { resources, setResources, showToast, courses } = useCampus();
+  const { user } = useAuth();
+  const canPublishOfficial = ["ADMIN", "DELEGATE"].includes(user?.role);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -72,7 +75,6 @@ export default function Resources() {
   const [deleting, setDeleting] = useState(null);
   const [form, setForm] = useState(blank);
   const [error, setError] = useState("");
-  const today = getLocalDateString();
   const filtered = useMemo(
     () =>
       resources
@@ -95,11 +97,23 @@ export default function Resources() {
   );
   const openForm = (item = null) => {
     setEditing(item || false);
-    setForm(item ? { ...item } : blank);
+    setForm(
+      item
+        ? {
+            title: item.title,
+            description: item.description || "",
+            category: item.category || "Other",
+            type: item.type || item.resourceType || "Article",
+            url: item.url,
+            courseId: item.courseId || "",
+            isPublic: Boolean(item.isPublic),
+          }
+        : blank,
+    );
     setError("");
   };
   const closeForm = () => setEditing(null);
-  const save = (event) => {
+  const save = async (event) => {
     event.preventDefault();
     if (!form.title.trim() || !form.description.trim() || !form.url.trim()) {
       setError("resources.required");
@@ -114,37 +128,61 @@ export default function Resources() {
       title: form.title.trim(),
       description: form.description.trim(),
       url: form.url.trim(),
+      courseId: form.courseId || null,
     };
-    const persisted = setResources((items) =>
-      editing
-        ? items.map((item) =>
-            item.id === editing.id ? { ...item, ...saved } : item,
-          )
-        : [{ ...saved, id: createId("resource"), createdAt: today }, ...items],
-    );
-    closeForm();
-    showToast(
-      t(persisted ? "common.saved" : "common.storageError"),
-      persisted ? "success" : "error",
-    );
+    try {
+      const storedResource = editing
+        ? await api.updateResource(editing.id, saved)
+        : await api.createResource(saved);
+      const persisted = setResources((items) =>
+        editing
+          ? items.map((item) =>
+              item.id === editing.id ? { ...item, ...storedResource } : item,
+            )
+          : [storedResource, ...items],
+      );
+      closeForm();
+      showToast(
+        t(persisted ? "common.saved" : "common.storageError"),
+        persisted ? "success" : "error",
+      );
+    } catch (error) {
+      console.error("Could not save resource.", error);
+      showToast(t("common.storageError"), "error");
+    }
   };
-  const remove = () => {
-    const persisted = setResources((items) =>
-      items.filter((item) => item.id !== deleting.id),
-    );
-    setDeleting(null);
-    showToast(
-      t(persisted ? "common.deleted" : "common.storageError"),
-      persisted ? "success" : "error",
-    );
+  const remove = async () => {
+    try {
+      await api.deleteResource(deleting.id);
+      const persisted = setResources((items) =>
+        items.filter((item) => item.id !== deleting.id),
+      );
+      setDeleting(null);
+      showToast(
+        t(persisted ? "common.deleted" : "common.storageError"),
+        persisted ? "success" : "error",
+      );
+    } catch (error) {
+      console.error("Could not delete resource.", error);
+      showToast(t("common.storageError"), "error");
+    }
   };
-  const toggleFavorite = (resource) => {
-    const persisted = setResources((items) =>
-      items.map((item) =>
-        item.id === resource.id ? { ...item, favorite: !item.favorite } : item,
-      ),
-    );
-    if (!persisted) showToast(t("common.storageError"), "error");
+  const toggleFavorite = async (resource) => {
+    const favorite = !resource.favorite;
+    try {
+      const updatedResource = await api.updateResource(resource.id, {
+        favorite,
+      });
+      const persisted = setResources((items) =>
+        items.map((item) =>
+          item.id === resource.id ? updatedResource : item,
+        ),
+      );
+      if (!persisted) showToast(t("common.storageError"), "error");
+    } catch (error) {
+      console.error("Could not update resource favorite status.", error);
+      showToast(t("common.storageError"), "error");
+    }
   };
 
   return (
@@ -247,6 +285,8 @@ export default function Resources() {
         <div className={`resource-grid ${view === "list" ? "cards-list" : ""}`}>
           {filtered.map((item) => {
             const Icon = typeIcon(item.type);
+            const canManage =
+              item.isOwner || (user?.role === "ADMIN" && item.isShared);
             const linkedCourse = courses.find(
               (course) => course.id === item.courseId,
             );
@@ -276,22 +316,31 @@ export default function Resources() {
                         fill={item.favorite ? "currentColor" : "none"}
                       />
                     </button>
-                    <button
-                      className="icon-button"
-                      aria-label={t("resources.edit", { title: item.title })}
-                      onClick={() => openForm(item)}
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      className="icon-button delete-action"
-                      aria-label={t("resources.delete", { title: item.title })}
-                      onClick={() => setDeleting(item)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    {canManage && (
+                      <>
+                        <button
+                          className="icon-button"
+                          aria-label={t("resources.edit", { title: item.title })}
+                          onClick={() => openForm(item)}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          className="icon-button delete-action"
+                          aria-label={t("resources.delete", { title: item.title })}
+                          onClick={() => setDeleting(item)}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
+                {item.isShared && (
+                  <span className="shared-content-badge">
+                    {t("resources.official")}
+                  </span>
+                )}
                 <span className="category-badge category-general">
                   {t(`category.${item.category}`)}
                 </span>
@@ -414,6 +463,18 @@ export default function Resources() {
                 }))}
               />
             </div>
+            {canPublishOfficial && (
+              <label className="shared-content-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.isPublic)}
+                  onChange={(event) =>
+                    setForm({ ...form, isPublic: event.target.checked })
+                  }
+                />
+                <span>{t("resources.publishOfficial")}</span>
+              </label>
+            )}
             {error && (
               <p className="form-error" role="alert">
                 {t(error)}

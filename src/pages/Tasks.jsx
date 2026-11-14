@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCampus } from "../context/CampusContext";
-import { createId } from "../services/storage";
+import { api } from "../services/api";
 import {
   formatLongDate,
   getLocalDateString,
@@ -212,7 +212,7 @@ export default function Tasks() {
     setForm(task ? { ...task } : blank);
     setError("");
   };
-  const save = (event) => {
+  const save = async (event) => {
     event.preventDefault();
     if (!form.title.trim() || !isValidDateString(form.dueDate)) {
       setError("tasks.validation");
@@ -222,44 +222,64 @@ export default function Tasks() {
       ...form,
       title: form.title.trim(),
       description: form.description.trim(),
+      courseId: form.courseId || null,
     };
-    const persisted = setTasks((items) =>
-      editing
-        ? items.map((item) =>
-            item.id === editing.id ? { ...item, ...saved } : item,
-          )
-        : [{ ...saved, id: createId("task"), createdAt: today }, ...items],
-    );
-    setEditing(null);
-    showToast(
-      t(persisted ? "common.saved" : "common.storageError"),
-      persisted ? "success" : "error",
-    );
+    try {
+      const storedTask = editing
+        ? await api.updateTask(editing.id, saved)
+        : await api.createTask(saved);
+      const persisted = setTasks((items) =>
+        editing
+          ? items.map((item) =>
+              item.id === editing.id ? { ...item, ...storedTask } : item,
+            )
+          : [storedTask, ...items],
+      );
+      setEditing(null);
+      showToast(
+        t(persisted ? "common.saved" : "common.storageError"),
+        persisted ? "success" : "error",
+      );
+    } catch (error) {
+      console.error("Could not save task.", error);
+      showToast(t("common.storageError"), "error");
+    }
   };
-  const remove = () => {
-    const persisted = setTasks((items) =>
-      items.filter((item) => item.id !== deleting.id),
-    );
-    setDeleting(null);
-    showToast(
-      t(persisted ? "common.deleted" : "common.storageError"),
-      persisted ? "success" : "error",
-    );
+  const remove = async () => {
+    try {
+      await api.deleteTask(deleting.id);
+      const persisted = setTasks((items) =>
+        items.filter((item) => item.id !== deleting.id),
+      );
+      setDeleting(null);
+      showToast(
+        t(persisted ? "common.deleted" : "common.storageError"),
+        persisted ? "success" : "error",
+      );
+    } catch (error) {
+      console.error("Could not delete task.", error);
+      showToast(t("common.storageError"), "error");
+    }
   };
-  const toggle = (id) => {
-    const persisted = setTasks((items) =>
-      items.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              status: item.status === "Completed" ? "Pending" : "Completed",
-              completedAt:
-                item.status === "Completed" ? undefined : getLocalDateString(),
-            }
-          : item,
-      ),
-    );
-    if (!persisted) showToast(t("common.storageError"), "error");
+  const toggle = async (id) => {
+    const task = tasks.find((item) => item.id === id);
+    if (!task) return;
+    const updatedTask = {
+      ...task,
+      status: task.status === "Completed" ? "Pending" : "Completed",
+      completedAt:
+        task.status === "Completed" ? null : getLocalDateString(),
+    };
+    try {
+      const storedTask = await api.updateTask(id, updatedTask);
+      const persisted = setTasks((items) =>
+        items.map((item) => (item.id === id ? storedTask : item)),
+      );
+      if (!persisted) showToast(t("common.storageError"), "error");
+    } catch (error) {
+      console.error("Could not update task status.", error);
+      showToast(t("common.storageError"), "error");
+    }
   };
   const isEditing = !editing;
   const formatDate = (date) =>

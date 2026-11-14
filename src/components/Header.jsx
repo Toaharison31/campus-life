@@ -10,10 +10,14 @@ import {
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useCampus } from "../context/CampusContext";
-import { getNotifications } from "../services/studentData";
+import { useAuth } from "../context/useAuth";
+import { api } from "../services/api";
+import { getCampusAlerts } from "../services/studentData";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { CountBadge } from "./StatusBadges";
 import LanguageSwitcher from "./LanguageSwitcher";
+import NotificationFeedItem from "./NotificationFeedItem";
+import { isRecentNotification } from "../services/notificationPresentation";
 
 const titles = {
   "/": "navigation.dashboard",
@@ -29,20 +33,43 @@ export default function Header({ onMenuClick, menuButtonRef, menuOpen }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { tasks, courses, announcements, readNotifications, profile, now } =
-    useCampus();
-  const [query, setQuery] = useState("");
-  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
-  const avatarMenuRef = useRef(null);
-  const avatarButtonRef = useRef(null);
-  const displayName = profile.name.trim() || t("profile.studentName");
-  const unreadCount = getNotifications({
+  const {
+    notifications,
+    setNotifications,
+    setAnnouncements,
     tasks,
     courses,
+    exams,
+    announcements,
+    profile,
+    now,
+    showToast,
+  } = useCampus();
+  const { logout } = useAuth();
+  const [query, setQuery] = useState("");
+  const searchInputRef = useRef(null);
+  const generatedNotifications = getCampusAlerts({
+    tasks,
+    courses,
+    exams,
     announcements,
     now,
     preferences: profile.notificationPreferences,
-  }).filter((item) => !readNotifications.includes(item.id)).length;
+  }).map((item) => ({
+    ...item,
+    message: t(`dashboard.alertTypes.${item.type}`),
+  }));
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const avatarMenuRef = useRef(null);
+  const avatarButtonRef = useRef(null);
+  const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
+  const notificationMenuRef = useRef(null);
+  const notificationButtonRef = useRef(null);
+  const notificationRefreshRef = useRef(false);
+  const displayName = profile.name.trim() || t("profile.studentName");
+  const unreadCount =
+    notifications.filter((item) => !item.isRead).length +
+    generatedNotifications.length;
   const initials = displayName
     .split(/\s+/)
     .map((part) => part[0])
@@ -53,6 +80,76 @@ export default function Header({ onMenuClick, menuButtonRef, menuOpen }) {
   const submitSearch = (event) => {
     event.preventDefault();
     if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+  };
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setAvatarMenuOpen(false);
+      navigate("/login", { replace: true });
+    } catch (error) {
+      console.error("Could not sign out of CAMPUS LIFE.", error);
+      showToast(t("common.apiError"), "error");
+    }
+  };
+
+  const markNotificationRead = async (item, isRead) => {
+    try {
+      if (item.derived && item.type === "announcement") {
+        const announcementId = item.id.slice("announcement:".length);
+        const updated = await api.updateAnnouncement(announcementId, {
+          isRead,
+        });
+        setAnnouncements((items) =>
+          items.map((record) =>
+            record.id === announcementId ? updated : record,
+          ),
+        );
+      } else if (!item.derived) {
+        const updated = await api.setNotificationRead(item.id, isRead);
+        setNotifications((items) =>
+          items.map((record) => (record.id === item.id ? updated : record)),
+        );
+      }
+    } catch (error) {
+      console.error("Could not update notification status.", error);
+      showToast(t("common.apiError"), "error");
+    }
+  };
+
+  const deleteNotification = async (item) => {
+    try {
+      await api.deleteNotification(item.id);
+      setNotifications((items) =>
+        items.filter((record) => record.id !== item.id),
+      );
+      showToast(t("notifications.deletedOne"), "success");
+    } catch (error) {
+      console.error("Could not delete notification.", error);
+      showToast(t("common.apiError"), "error");
+    }
+  };
+
+  const refreshNotifications = async () => {
+    if (notificationRefreshRef.current) return;
+    notificationRefreshRef.current = true;
+    try {
+      const records = await api.getNotifications();
+      if (!Array.isArray(records)) {
+        throw new Error("The notifications response was not a list.");
+      }
+      setNotifications(records);
+    } catch (error) {
+      console.error("Could not refresh notifications.", error);
+      showToast(t("common.apiError"), "error");
+    } finally {
+      notificationRefreshRef.current = false;
+    }
+  };
+
+  const toggleNotificationMenu = () => {
+    const shouldOpen = !notificationMenuOpen;
+    setNotificationMenuOpen(shouldOpen);
+    if (shouldOpen) refreshNotifications();
   };
 
   useEffect(() => {
@@ -99,6 +196,42 @@ export default function Header({ onMenuClick, menuButtonRef, menuOpen }) {
     };
   }, [avatarMenuOpen]);
 
+  useEffect(() => {
+    if (!notificationMenuOpen) return undefined;
+    const closeMenu = (event) => {
+      if (!notificationMenuRef.current?.contains(event.target)) {
+        setNotificationMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") {
+        setNotificationMenuOpen(false);
+        notificationButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [notificationMenuOpen]);
+
+  const dropdownNotifications = [...notifications]
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt || 0).getTime() -
+        new Date(a.createdAt || 0).getTime(),
+    )
+    .concat(generatedNotifications)
+    .slice(0, 6);
+  const newDropdownNotifications = dropdownNotifications.filter((item) =>
+    isRecentNotification(item),
+  );
+  const earlierDropdownNotifications = dropdownNotifications.filter(
+    (item) => !isRecentNotification(item),
+  );
+
   return (
     <header className="topbar">
       <div className="topbar-leading">
@@ -107,6 +240,7 @@ export default function Header({ onMenuClick, menuButtonRef, menuOpen }) {
           className="icon-button mobile-menu"
           type="button"
           aria-label={t(menuOpen ? "navigation.close" : "header.openNavigation")}
+          title={t(menuOpen ? "navigation.close" : "header.openNavigation")}
           aria-expanded={menuOpen}
           aria-controls="primary-navigation"
           onClick={onMenuClick}
@@ -115,7 +249,7 @@ export default function Header({ onMenuClick, menuButtonRef, menuOpen }) {
         </button>
         <Link className="topbar-brand" to="/" aria-label={t("app.title")}>
           <span className="topbar-brand-mark">
-            <GraduationCap size={17} aria-hidden="true" />
+            <GraduationCap size={21} aria-hidden="true" />
           </span>
           <span>
             campus<span>life</span>
@@ -129,9 +263,15 @@ export default function Header({ onMenuClick, menuButtonRef, menuOpen }) {
         </div>
       </div>
       <div className="topbar-actions">
-        <form className="global-search" role="search" onSubmit={submitSearch}>
+        <form
+          className="global-search"
+          role="search"
+          onSubmit={submitSearch}
+          onClick={() => searchInputRef.current?.focus()}
+        >
           <Search size={16} aria-hidden="true" />
           <input
+            ref={searchInputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("globalSearch.placeholder")}
@@ -143,15 +283,88 @@ export default function Header({ onMenuClick, menuButtonRef, menuOpen }) {
         </span>
         <ThemeSwitcher />
         <LanguageSwitcher />
-        <Link
-          className="icon-button notification-button"
-          to="/notifications"
-          aria-label={t("header.alertCount", { count: unreadCount })}
-          title={t("header.viewNotifications")}
-        >
-          <Bell size={20} />
-          <CountBadge count={unreadCount} className="notification-count" />
-        </Link>
+        <div className="notification-menu-wrap" ref={notificationMenuRef}>
+          <button
+            ref={notificationButtonRef}
+            className="icon-button notification-button"
+            type="button"
+            aria-label={t("header.alertCount", { count: unreadCount })}
+            title={t("header.viewNotifications")}
+            aria-haspopup="dialog"
+            aria-expanded={notificationMenuOpen}
+            aria-controls="header-notification-popover"
+            onClick={toggleNotificationMenu}
+          >
+            <Bell size={20} />
+            <CountBadge count={unreadCount} className="notification-count" />
+          </button>
+          {notificationMenuOpen && (
+            <section
+              className="notification-popover"
+              id="header-notification-popover"
+              role="dialog"
+              aria-label={t("notifications.title")}
+            >
+              <header className="notification-popover-header">
+                <h2>{t("notifications.title")}</h2>
+                <Link
+                  to="/notifications"
+                  onClick={() => setNotificationMenuOpen(false)}
+                >
+                  {t("notifications.viewAll")}
+                </Link>
+              </header>
+              {dropdownNotifications.length ? (
+                <div className="notification-popover-list">
+                  {[
+                    {
+                      key: "newGroup",
+                      items: newDropdownNotifications,
+                    },
+                    {
+                      key: "earlierGroup",
+                      items: earlierDropdownNotifications,
+                    },
+                  ]
+                    .filter((group) => group.items.length > 0)
+                    .map((group) => (
+                      <section
+                        className="notification-popover-group"
+                        key={group.key}
+                      >
+                        <h3>{t(`notifications.${group.key}`)}</h3>
+                        {group.items.map((item) => (
+                          <NotificationFeedItem
+                            key={item.id}
+                            item={item}
+                            compact
+                            onOpen={(notification) => {
+                              if (!notification.isRead) {
+                                markNotificationRead(notification, true);
+                              }
+                              setNotificationMenuOpen(false);
+                            }}
+                            onToggleRead={markNotificationRead}
+                            onDelete={deleteNotification}
+                            onReport={() =>
+                              showToast(
+                                t("notifications.reportAcknowledged"),
+                                "success",
+                              )
+                            }
+                          />
+                        ))}
+                      </section>
+                    ))}
+                </div>
+              ) : (
+                <p className="notification-popover-empty">
+                  {t("notifications.dropdownEmpty")}
+                </p>
+              )}
+            </section>
+          )}
+        </div>
         <div className="avatar-menu-wrap" ref={avatarMenuRef}>
           <button
             ref={avatarButtonRef}
@@ -194,8 +407,7 @@ export default function Header({ onMenuClick, menuButtonRef, menuOpen }) {
               <button
                 type="button"
                 role="menuitem"
-                disabled
-                title={t("header.profileMenu.noAccount")}
+                onClick={handleLogout}
               >
                 {t("header.profileMenu.logout")}
               </button>

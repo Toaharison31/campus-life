@@ -26,6 +26,7 @@ export function FloatingInput({
   type = "text",
   maxLength,
   autoComplete,
+  readOnly = false,
 }) {
   const { t } = useTranslation();
   return (
@@ -40,6 +41,7 @@ export function FloatingInput({
           placeholder=" "
           maxLength={maxLength}
           autoComplete={autoComplete}
+          readOnly={readOnly}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? `${id}-error` : undefined}
         />
@@ -381,6 +383,7 @@ export function SettingsTabs({ active, onChange }) {
           type="button"
           role="tab"
           aria-selected={active === tab}
+          aria-controls="settings-panel"
           tabIndex={active === tab ? 0 : -1}
           id={`settings-tab-${tab}`}
           key={tab}
