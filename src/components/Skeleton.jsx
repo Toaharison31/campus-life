@@ -1,3 +1,4 @@
+// Affiche un espace réservé pendant le chargement du contenu.
 export default function Skeleton({
   className = "",
   width,

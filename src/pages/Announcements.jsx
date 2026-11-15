@@ -1,3 +1,4 @@
+// Gère les annonces, leur publication et les échanges associés.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,

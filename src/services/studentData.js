@@ -1,3 +1,4 @@
+// Calcule les statistiques et les données dérivées affichées dans l'interface.
 import { getLocalDateString } from "./dates.js";
 
 const weekdays = [

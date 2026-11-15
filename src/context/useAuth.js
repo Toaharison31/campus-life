@@ -1,3 +1,4 @@
+// Donne accès au contexte d'authentification depuis les composants.
 import { useContext } from "react";
 import { AuthContext } from "./authContext";
 

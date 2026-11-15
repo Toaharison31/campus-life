@@ -1,3 +1,4 @@
+// Vérifie le contraste des couleurs définies pour les thèmes de l'application.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 

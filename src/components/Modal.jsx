@@ -1,3 +1,4 @@
+// Affiche une fenêtre modale et gère son ouverture, sa fermeture et le focus.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";

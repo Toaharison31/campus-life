@@ -1,3 +1,4 @@
+/* Définit les variables de couleur et de thème utilisées dans l'interface. */
 :root[data-theme="light"],
 :root:not([data-theme]) {
   color-scheme: light;

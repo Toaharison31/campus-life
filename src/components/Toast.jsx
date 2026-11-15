@@ -1,3 +1,4 @@
+// Affiche un message temporaire avec une indication de résultat.
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 

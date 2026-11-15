@@ -1,3 +1,4 @@
+// Repère les couleurs codées en dur à la place des jetons de thème.
 import { readdir, readFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 

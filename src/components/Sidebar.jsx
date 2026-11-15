@@ -1,3 +1,4 @@
+// Affiche la navigation principale et les informations utiles de l'étudiant.
 import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";

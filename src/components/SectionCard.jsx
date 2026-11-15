@@ -1,3 +1,4 @@
+// Encadre une section dans une carte au style partagé.
 import Card from "./Card";
 
 export default function SectionCard({

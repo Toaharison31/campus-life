@@ -1,3 +1,4 @@
+// Regroupe les composants réutilisés dans les réglages du profil.
 import { useEffect, useRef, useState } from "react";
 import {
   CalendarDays,

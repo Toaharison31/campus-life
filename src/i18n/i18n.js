@@ -1,3 +1,4 @@
+// Configure les langues disponibles et la synchronisation avec les préférences du compte.
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { api } from "../services/api.js";

@@ -1,3 +1,4 @@
+// Présente les composants et thèmes disponibles dans l'application.
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Badge from "../components/Badge";

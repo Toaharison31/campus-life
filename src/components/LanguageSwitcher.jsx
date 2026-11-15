@@ -1,3 +1,4 @@
+// Permet de changer la langue utilisée dans l'interface.
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";

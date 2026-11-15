@@ -1,3 +1,4 @@
+// Gère les informations personnelles et les préférences du compte.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,

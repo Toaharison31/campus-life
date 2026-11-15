@@ -1,3 +1,4 @@
+// Fournit un conteneur visuel réutilisable pour les contenus.
 export default function Card({
   as: Component = "section",
   className = "",

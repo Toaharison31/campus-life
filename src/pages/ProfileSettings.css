@@ -1,3 +1,4 @@
+/* Met en forme le profil, ses formulaires et ses préférences. */
 .profile-settings-page {
   --profile-primary-contrast: var(--color-primary-strong);
   --profile-card-radius: 16px;

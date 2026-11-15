@@ -1,3 +1,4 @@
+// Affiche un message lorsqu'une liste ou une page ne contient rien.
 import { ArrowRight, Inbox } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";

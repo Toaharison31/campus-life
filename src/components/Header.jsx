@@ -1,3 +1,4 @@
+// Affiche la barre supérieure, les notifications et les raccourcis de navigation.
 import { useEffect, useRef, useState } from "react";
 import {
   Bell,

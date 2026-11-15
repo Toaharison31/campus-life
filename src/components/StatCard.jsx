@@ -1,3 +1,4 @@
+// Présente un indicateur chiffré avec une animation de valeur.
 import { useEffect, useState } from "react";
 
 function AnimatedValue({ value }) {

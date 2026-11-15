@@ -1,3 +1,4 @@
+// Affiche l'en-tête standard des pages de l'application.
 export default function PageHeader({
   eyebrow,
   title,

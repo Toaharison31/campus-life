@@ -1,3 +1,4 @@
+// Fournit un calendrier pour sélectionner une date.
 import { useEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";

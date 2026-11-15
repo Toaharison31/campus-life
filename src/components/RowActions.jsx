@@ -1,3 +1,4 @@
+// Rassemble les actions secondaires d'une ligne dans un menu.
 import { useEffect, useId, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";

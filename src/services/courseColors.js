@@ -1,3 +1,4 @@
+// Associe une couleur stable à chaque cours.
 export function getCourseColorIndex(course) {
   const identity = String(course?.id || course?.name || "course");
   let hash = 0;

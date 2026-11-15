@@ -1,3 +1,4 @@
+// Uniformise la présentation des champs de saisie.
 export default function Input({
   label,
   id,

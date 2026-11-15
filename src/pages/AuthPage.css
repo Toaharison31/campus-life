@@ -1,3 +1,4 @@
+/* Définit la mise en page des écrans de connexion et d'inscription. */
 .auth-page {
   display: grid;
   min-height: 100vh;

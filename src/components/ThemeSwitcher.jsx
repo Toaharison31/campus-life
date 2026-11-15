@@ -1,3 +1,4 @@
+// Permet de basculer entre les thèmes d'affichage disponibles.
 import { Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCampus } from "../context/CampusContext";

@@ -1,3 +1,4 @@
+// Centralise les requêtes HTTP et les opérations sur les ressources de l'API.
 const API_BASE_URL = (
   import.meta.env.VITE_API_URL || "http://localhost:5000/api"
 ).replace(/\/$/, "");

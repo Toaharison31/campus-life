@@ -1,3 +1,4 @@
+// Affiche et gère les cours ainsi que les examens de l'étudiant.
 import { useState } from "react";
 import {
   CalendarDays,

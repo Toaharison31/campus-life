@@ -1,3 +1,4 @@
+// Affiche les notifications et permet de les consulter ou de les supprimer.
 import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";

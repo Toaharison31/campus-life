@@ -1,3 +1,4 @@
+// Prépare les destinations et les dates affichées pour les notifications.
 export function notificationDestination(type = "") {
   if (
     type === "announcement" ||

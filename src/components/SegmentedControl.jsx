@@ -1,3 +1,4 @@
+// Permet de sélectionner une option parmi plusieurs segments.
 import { useRef } from "react";
 
 export default function SegmentedControl({

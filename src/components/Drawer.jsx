@@ -1,3 +1,4 @@
+// Affiche un panneau latéral et gère son cycle d'ouverture et de fermeture.
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";

@@ -1,3 +1,4 @@
+// Recherche des tâches, cours, annonces et ressources de l'application.
 import { useMemo } from "react";
 import { Search } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";

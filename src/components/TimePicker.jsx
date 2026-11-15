@@ -1,3 +1,4 @@
+// Fournit un sélecteur d'heure basé sur les heures et minutes de la journée.
 import { useEffect, useRef, useState } from "react";
 import { Clock3 } from "lucide-react";
 import { useTranslation } from "react-i18next";

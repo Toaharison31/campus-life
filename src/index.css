@@ -1,3 +1,4 @@
+/* Regroupe les styles globaux et partagés de l'application. */
 @import "tailwindcss";
 @config "../tailwind.config.js";
 @import "./styles/tokens.css";
@@ -4178,7 +4179,7 @@ textarea:focus {
   }
 }
 
-/* Shared visual polish */
+/* Harmonise les détails visuels partagés entre les composants. */
 :root {
   color: var(--text-muted);
   background: var(--bg-subtle);

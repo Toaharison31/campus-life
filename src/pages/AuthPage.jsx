@@ -1,3 +1,4 @@
+// Présente les formulaires de connexion et d'inscription.
 import { useState } from "react";
 import { GraduationCap } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";

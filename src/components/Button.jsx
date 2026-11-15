@@ -1,3 +1,4 @@
+// Uniformise l'apparence et le comportement des boutons de l'interface.
 export default function Button({
   as: Component = "button",
   variant = "primary",

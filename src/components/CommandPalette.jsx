@@ -1,3 +1,4 @@
+// Gère la recherche et la navigation depuis la palette de commandes.
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Search, X } from "lucide-react";

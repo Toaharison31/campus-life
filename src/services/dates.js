@@ -3,6 +3,7 @@ function parseDateString(value) {
     return null;
   const [year, month, day] = value.split("-").map(Number);
   if (year < 1) return null;
+  // Midi UTC évite qu'un changement de fuseau décale la date au jour précédent.
   const date = new Date(0);
   date.setUTCHours(12, 0, 0, 0);
   date.setUTCFullYear(year, month - 1, day);

@@ -193,6 +193,7 @@ function App() {
     profileRef.current = value;
     setProfileState(value);
 
+    // La file évite qu'une ancienne écriture n'écrase une mise à jour récente.
     const save = profileWriteQueue.current.then(() => {
       if (authUserRef.current?.id !== ownerId) {
         throw new Error("The active account changed before this update was saved.");
@@ -228,6 +229,7 @@ function App() {
   const loadData = useCallback(async () => {
     if (!userId) return false;
     try {
+      // Charge les données indépendantes en parallèle.
       const [
         tasksData,
         coursesData,

@@ -1,3 +1,4 @@
+// Crée un bouton icône réutilisable avec un élément DOM référencé.
 import { forwardRef } from "react";
 
 const IconButton = forwardRef(function IconButton(

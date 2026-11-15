@@ -1,3 +1,4 @@
+// Propose une liste déroulante personnalisée avec navigation au clavier.
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";

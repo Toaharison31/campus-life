@@ -1,3 +1,4 @@
+// Affiche et gère les ressources partagées avec la communauté étudiante.
 import { useMemo, useState } from "react";
 import {
   BookOpen,

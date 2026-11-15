@@ -1,3 +1,4 @@
+// Compose le tableau de bord à partir des activités et indicateurs du campus.
 import { useEffect, useRef, useState } from "react";
 import {
   Activity,

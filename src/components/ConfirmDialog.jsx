@@ -1,3 +1,4 @@
+// Présente une demande de confirmation avant une action importante.
 import Modal from "./Modal";
 import { useTranslation } from "react-i18next";
 

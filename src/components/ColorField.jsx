@@ -1,3 +1,4 @@
+// Permet de choisir une couleur parmi la palette de l'application.
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 

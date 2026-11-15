@@ -1,3 +1,4 @@
+// Présente une notification avec son contenu, son état et sa destination.
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";

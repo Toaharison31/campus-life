@@ -1,3 +1,4 @@
+// Regroupe les badges utilisés pour les priorités, états et compteurs.
 import { AlertCircle, CheckCircle2, Circle, Flag } from "lucide-react";
 import { getCourseColorClass } from "../services/courseColors";
 import Badge from "./Badge";

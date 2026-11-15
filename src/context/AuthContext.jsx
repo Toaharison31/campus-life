@@ -1,3 +1,4 @@
+// Centralise l'état d'authentification et les actions de session.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
 import { AuthContext } from "./authContext";
